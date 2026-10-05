@@ -1,0 +1,81 @@
+{
+  "name": "taskflow-desktop",
+  "version": "0.1.3",
+  "description": "ESPresso: visual FreeRTOS layouts and ESP-IDF C++ skeletons",
+  "author": "ESPresso",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "main": "dist-electron/main.cjs",
+  "scripts": {
+    "native": "node scripts/build-native.mjs",
+    "build:ui": "tsc --noEmit && vite build && node scripts/build-electron.mjs",
+    "build": "npm run native && npm run build:ui",
+    "start": "node scripts/launch.mjs",
+    "dev": "npm run build && npm start",
+    "test": "npm run native && node --test tests/backend.test.mjs",
+    "test:e2e": "node tests/desktop.e2e.mjs",
+    "package": "npm run build && node scripts/package.mjs",
+    "format": "node scripts/format.mjs",
+    "format:check": "node scripts/format.mjs --check",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@xyflow/react": "12.12.0",
+    "lucide-react": "^0.468.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^6.0.0",
+    "electron": "45.2.1",
+    "electron-builder": "26.18.0",
+    "esbuild": "^0.27.0",
+    "prettier": "3.6.2",
+    "typescript": "^5.9.0",
+    "vite": "8.3.5"
+  },
+  "build": {
+    "npmRebuild": false,
+    "appId": "uk.taskflow.desktop",
+    "productName": "ESPresso",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build/native/Release/taskflow-core.exe",
+        "to": "core/taskflow-core.exe"
+      },
+      {
+        "from": "native/third_party/nlohmann/LICENSE.MIT",
+        "to": "licenses/nlohmann-json.LICENSE.txt"
+      },
+      {
+        "from": "LICENSE",
+        "to": "licenses/Taskflow.LICENSE.txt"
+      },
+      {
+        "from": "public/brand/espresso-mark.png",
+        "to": "branding/espresso-mark.png"
+      }
+    ],
+    "win": {
+      "target": "portable",
+      "icon": "branding/espresso.ico",
+      "signExecutable": false
+    },
+    "portable": {
+      "artifactName": "ESPresso-${version}-Windows.exe"
+    }
+  }
+}

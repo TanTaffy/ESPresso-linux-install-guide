@@ -1,0 +1,17 @@
+node_modules/
+dist/
+dist-electron/
+build/
+release/
+test-results/
+*.log
+.env
+.env.*
+!.env.example
+.vs/
+.idea/
+*.user
+*.suo
+*.tmp
+.DS_Store
+Thumbs.db

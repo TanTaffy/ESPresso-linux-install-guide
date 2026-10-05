@@ -1,0 +1,10 @@
+node_modules
+build
+dist
+dist-electron
+release
+test-results
+native/third_party
+branding
+public
+package-lock.json
