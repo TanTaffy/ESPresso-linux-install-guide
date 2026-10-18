@@ -1,0 +1,135 @@
+{
+  "name": "pressure-node",
+  "nodes": [
+    {
+      "core": "any",
+      "id": "task-adc",
+      "kind": "task",
+      "loop": [
+        {
+          "id": "adc-read",
+          "kind": "placeholder",
+          "name": "Read pressure channel",
+          "note": "Read the ADC count into pressure.raw_count."
+        },
+        {
+          "id": "adc-convert",
+          "kind": "placeholder",
+          "name": "Convert counts to pressure",
+          "note": "Apply sensor calibration. Set pressure.pressure_bar and pressure.valid."
+        },
+        {
+          "id": "adc-publish",
+          "kind": "write",
+          "localName": "pressure",
+          "name": "Publish pressure",
+          "note": "",
+          "structId": "struct-pressure"
+        }
+      ],
+      "name": "ADC",
+      "periodMs": 100,
+      "position": {
+        "x": 40,
+        "y": 60
+      },
+      "priority": 2,
+      "setup": [
+        {
+          "id": "adc-spi",
+          "kind": "placeholder",
+          "name": "Initialise SPI",
+          "note": "Configure the SPI bus and GPIO pins."
+        },
+        {
+          "id": "adc-config",
+          "kind": "placeholder",
+          "name": "Configure ADC",
+          "note": "Initialise ADC A and select the pressure channel."
+        }
+      ],
+      "stackBytes": 4096,
+      "symbol": "adc"
+    },
+    {
+      "fields": [
+        {
+          "id": "field-raw",
+          "initialValue": "0",
+          "name": "raw_count",
+          "type": "uint16_t"
+        },
+        {
+          "id": "field-bar",
+          "initialValue": "0.0f",
+          "name": "pressure_bar",
+          "type": "float"
+        },
+        {
+          "id": "field-valid",
+          "initialValue": "false",
+          "name": "valid",
+          "type": "bool"
+        }
+      ],
+      "id": "struct-pressure",
+      "kind": "struct",
+      "name": "Pressure",
+      "position": {
+        "x": 400,
+        "y": 180
+      },
+      "symbol": "pressure",
+      "typeName": "PressureData"
+    },
+    {
+      "core": "any",
+      "id": "task-can",
+      "kind": "task",
+      "loop": [
+        {
+          "id": "can-read",
+          "kind": "read",
+          "localName": "pressure",
+          "name": "Read pressure",
+          "note": "",
+          "structId": "struct-pressure"
+        },
+        {
+          "id": "can-pack",
+          "kind": "placeholder",
+          "name": "Pack CAN frame",
+          "note": "Choose can_frame.id and pack the pressure snapshot into can_frame.data using MSM_CAN::pack_* helpers."
+        },
+        {
+          "action": "msm_can_send",
+          "id": "can-send",
+          "kind": "placeholder",
+          "name": "Transmit frame",
+          "note": "After configuring CAN, choosing the message ID and packing the payload, enable the send call below."
+        }
+      ],
+      "name": "CAN",
+      "periodMs": 100,
+      "position": {
+        "x": 740,
+        "y": 60
+      },
+      "preset": "msm_can",
+      "priority": 3,
+      "setup": [
+        {
+          "action": "msm_can_init",
+          "id": "can-init",
+          "kind": "placeholder",
+          "name": "Initialise CAN",
+          "note": "Choose the CAN RX/TX GPIOs and enable the MSM_CAN initialisation call below."
+        }
+      ],
+      "stackBytes": 4096,
+      "symbol": "can"
+    }
+  ],
+  "target": "esp32s3",
+  "version": 1
+}
