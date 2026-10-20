@@ -8,7 +8,6 @@ const roots = [
   'electron',
   'scripts',
   'tests',
-  'docs',
   '.github',
   'README.md',
   'package.json',
