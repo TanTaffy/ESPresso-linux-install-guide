@@ -29,13 +29,6 @@ Each CAN export downloads the latest **stable published MSM_CAN release** and re
 
 Exports create a new project folder and never overwrite existing handwritten code. Startup always opens a blank **New layout**; saved layouts and the pressure example are explicit choices.
 
-## Documentation
-
-- [Using the app and exporting firmware](docs/usage.md)
-- [Build, test, format and package](docs/development.md)
-- [Architecture and module responsibilities](docs/architecture.md)
-- [Example layout](examples/pressure-node.taskflow.json)
-
 ## Checks
 
 ```powershell
