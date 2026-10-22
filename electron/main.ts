@@ -108,7 +108,12 @@ app.whenReady().then(() => {
     const answer = await dialog.showOpenDialog(window, {
       title: 'Open ESPresso layout',
       properties: ['openFile'],
-      filters: [{ name: 'ESPresso layout', extensions: ['espresso.json'] }],
+      filters: [
+        {
+          name: 'ESPresso layout',
+          extensions: ['espresso.json', 'layout.json'],
+        },
+      ],
     });
     if (answer.canceled) return null;
     const result = await native({ op: 'load', path: answer.filePaths[0] });
