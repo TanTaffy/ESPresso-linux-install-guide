@@ -45,6 +45,6 @@ Native and desktop tests are offline by default. Set `ESPRESSO_LIVE_CAN=1` to ad
 
 `src/` contains the renderer, `electron/` the desktop shell and `native/` the C++ backend. Native code is split into validation, generation, presets, storage, release downloads and request dispatch. Build output and packaged executables are excluded from the repository.
 
-The app uses the supplied ESPresso cup as its Windows icon and a plain text wordmark in the interface. Original artwork is retained in `branding/`; runtime assets are in `public/brand/`. The `.taskflow.json` format and internal process names are retained for compatibility.
+The app uses the supplied ESPresso cup as its Windows icon and a plain text wordmark in the interface. Original artwork is retained in `branding/`; runtime assets are in `public/brand/`. Layouts use `.espresso.json` and generated C++ uses the `espresso` namespace.
 
 Application code is under the [MIT license](LICENSE). The vendored nlohmann JSON license is retained with its source. User-supplied branding and downloaded MSM_CAN source retain their own provenance; exported CAN projects include the upstream source attribution.

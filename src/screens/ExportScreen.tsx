@@ -142,7 +142,7 @@ export function ExportScreen({
           </span>
           <button
             className="button"
-            onClick={() => void run(() => window.taskflow.revealExport())}
+            onClick={() => void run(() => window.espresso.revealExport())}
           >
             <FolderOpen size={15} />
             Open folder

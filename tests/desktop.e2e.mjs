@@ -6,9 +6,9 @@ import os from 'node:os';
 import path from 'node:path';
 const root = path.resolve('.');
 const liveCan = process.env.ESPRESSO_LIVE_CAN === '1';
-const data = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-desktop-'));
+const data = fs.mkdtempSync(path.join(os.tmpdir(), 'espresso-desktop-'));
 fs.writeFileSync(
-  path.join(data, 'recovery.taskflow.json'),
+  path.join(data, 'recovery.espresso.json'),
   JSON.stringify({
     version: 1,
     name: 'previous-session',
@@ -16,11 +16,11 @@ fs.writeFileSync(
     nodes: [],
   }),
 );
-const env = { ...process.env, TASKFLOW_TEST_DATA: data };
+const env = { ...process.env, ESPRESSO_TEST_DATA: data };
 delete env.ELECTRON_RUN_AS_NODE;
 const app = await electron.launch({
-  executablePath: process.env.TASKFLOW_E2E_BINARY || electronBinary,
-  args: process.env.TASKFLOW_E2E_BINARY ? [] : [root],
+  executablePath: process.env.ESPRESSO_E2E_BINARY || electronBinary,
+  args: process.env.ESPRESSO_E2E_BINARY ? [] : [root],
   env,
   cwd: root,
   timeout: 30000,
@@ -38,7 +38,7 @@ try {
   await expect(page.locator('.status-bar')).toHaveCount(0);
   assert.equal(
     JSON.parse(
-      fs.readFileSync(path.join(data, 'recovery.taskflow.json'), 'utf8'),
+      fs.readFileSync(path.join(data, 'recovery.espresso.json'), 'utf8'),
     ).name,
     'previous-session',
   );
@@ -158,7 +158,7 @@ try {
     /Print the local sample/,
   );
   await page.screenshot({ path: path.join(screenshotDir, 'export.png') });
-  const savePath = path.join(data, 'saved.taskflow.json');
+  const savePath = path.join(data, 'saved.espresso.json');
   await app.evaluate(({ dialog }, savePath) => {
     dialog.showSaveDialog = async () => ({
       canceled: false,
@@ -180,7 +180,7 @@ try {
         delete node.preset;
         for (const step of [...node.setup, ...node.loop]) delete step.action;
       }
-    const fixturePath = path.join(data, 'offline-export.taskflow.json');
+    const fixturePath = path.join(data, 'offline-export.espresso.json');
     fs.writeFileSync(fixturePath, JSON.stringify(fixture));
     await app.evaluate(({ dialog }, file) => {
       dialog.showOpenDialog = async () => ({

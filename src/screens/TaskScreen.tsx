@@ -96,7 +96,7 @@ export function TaskScreen({
                   draggable
                   onDragStart={(e) =>
                     e.dataTransfer.setData(
-                      'application/taskflow-step',
+                      'application/espresso-step',
                       JSON.stringify({ phase, id: s.id }),
                     )
                   }
@@ -105,7 +105,7 @@ export function TaskScreen({
                     e.preventDefault();
                     try {
                       const from = JSON.parse(
-                        e.dataTransfer.getData('application/taskflow-step'),
+                        e.dataTransfer.getData('application/espresso-step'),
                       );
                       if (from.phase === phase) reorder(phase, from.id, s.id);
                     } catch {}

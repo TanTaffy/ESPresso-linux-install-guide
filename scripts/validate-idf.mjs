@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-const core = path.resolve('build/native/Release/taskflow-core.exe');
+const core = path.resolve('build/native/Release/espresso-core.exe');
 const request = (value) => {
   const r = JSON.parse(
     execFileSync(core, [], {

@@ -53,7 +53,7 @@ inline std::string encode(const std::string &text, bool keep_slashes = false)
 }
 inline std::string get(const wchar_t *host, const std::string &resource)
 {
-    InternetHandle session(WinHttpOpen(L"ESPresso/0.1.3", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
+    InternetHandle session(WinHttpOpen(L"ESPresso/0.1.4", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
                                        WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0));
     WinHttpSetTimeouts(session, 8000, 8000, 8000, 15000);
     InternetHandle connection(WinHttpConnect(session, host, INTERNET_DEFAULT_HTTPS_PORT, 0));

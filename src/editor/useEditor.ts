@@ -74,11 +74,11 @@ export function useEditor() {
   );
   useEffect(() => {
     let alive = true;
-    if (!window.taskflow) {
+    if (!window.espresso) {
       setError('Launch ESPresso as a desktop app with npm start.');
       return;
     }
-    window.taskflow
+    window.espresso
       .boot()
       .then((result) => {
         if (!alive) return;
@@ -98,7 +98,7 @@ export function useEditor() {
     let alive = true;
     setChecking(true);
     const timer = setTimeout(() => {
-      window.taskflow
+      window.espresso
         .preview(project)
         .then((p) => {
           if (alive) {
@@ -120,7 +120,7 @@ export function useEditor() {
   }, [project]);
   useEffect(() => {
     if (!project || (!dirty && !savedPath)) return;
-    void window.taskflow
+    void window.espresso
       .draft(project, dirty)
       .catch((e) => setError(`Recovery copy failed: ${e}`));
   }, [project, dirty, savedPath]);
@@ -194,7 +194,7 @@ export function useEditor() {
   }
   async function save(saveAs = false) {
     if (!project) return;
-    const result = await run(() => window.taskflow.save(project, saveAs));
+    const result = await run(() => window.espresso.save(project, saveAs));
     if (result) {
       setSavedPath(result.path);
       setDirty(false);
@@ -204,7 +204,7 @@ export function useEditor() {
   async function replaceDocument(action: 'new' | 'example' | 'open') {
     await run(async () => {
       if (action === 'open') {
-        const result = await window.taskflow.open();
+        const result = await window.espresso.open();
         if (!result) return;
         setProject(result.project);
         setSavedPath(result.path);
@@ -213,9 +213,9 @@ export function useEditor() {
       } else {
         const p =
           action === 'new'
-            ? await window.taskflow.empty()
-            : await window.taskflow.example();
-        await window.taskflow.newDocument(p);
+            ? await window.espresso.empty()
+            : await window.espresso.example();
+        await window.espresso.newDocument(p);
         setProject(p);
         setSavedPath(null);
         setSelectedId(p.nodes[0]?.id ?? null);
@@ -304,7 +304,7 @@ export function useEditor() {
         x: window.innerWidth * 0.43,
         y: window.innerHeight * 0.4,
       }) ?? { x: 80, y: 80 };
-    const node = await run(() => window.taskflow.canPreset(base, pos));
+    const node = await run(() => window.espresso.canPreset(base, pos));
     if (!node) return;
     change((p) => p.nodes.push(node));
     setSelectedId(node.id);
@@ -516,7 +516,7 @@ export function useEditor() {
   }
   async function exportProject() {
     if (!project) return;
-    const result = await run(() => window.taskflow.export(project));
+    const result = await run(() => window.espresso.export(project));
     if (result) {
       setExportPath(result.path);
       setExportCanVersion(result.msmCanVersion ?? '');

@@ -14,4 +14,4 @@ const api: DesktopApi = {
   newDocument: (project) => ipcRenderer.invoke('new-document', project),
   revealExport: () => ipcRenderer.invoke('reveal-export'),
 };
-contextBridge.exposeInMainWorld('taskflow', api);
+contextBridge.exposeInMainWorld('espresso', api);

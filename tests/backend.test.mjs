@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-const core = path.resolve('build/native/Release/taskflow-core.exe');
+const core = path.resolve('build/native/Release/espresso-core.exe');
 function request(value) {
   return JSON.parse(
     execFileSync(core, [], {
@@ -38,7 +38,7 @@ test('pressure example generates mutex helpers, setup/loop files and timed wrapp
   );
   assert.match(
     f['main/tasks/can_task.cpp'],
-    /pressure = ::taskflow::shared::read_pressure\(\)/,
+    /pressure = ::espresso::shared::read_pressure\(\)/,
   );
   assert.match(f['main/generated/task_runtime.cpp'], /pdMS_TO_TICKS\(100\)/);
   assert.match(
@@ -46,7 +46,7 @@ test('pressure example generates mutex helpers, setup/loop files and timed wrapp
     /xSemaphoreTake\(mutex, portMAX_DELAY\)/,
   );
   assert.match(f['sdkconfig.defaults'], /CONFIG_FREERTOS_HZ=1000/);
-  assert.deepEqual(JSON.parse(f['taskflow.layout.json']), p);
+  assert.deepEqual(JSON.parse(f['espresso.layout.json']), p);
 });
 test('generation preserves ordering, notes, arbitrary structs and local aliases', () => {
   const p = example();
@@ -158,9 +158,9 @@ test('all supported field types and boundary values generate legal literals', ()
   );
 });
 test('save/load round trip includes positions and invalid-but-editable drafts', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-save-')),
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'espresso-save-')),
     p = example(),
-    file = path.join(dir, 'pressure.taskflow.json');
+    file = path.join(dir, 'pressure.espresso.json');
   p.nodes[0].position = { x: 123, y: 456 };
   p.nodes[0].symbol = '';
   assert.equal(request({ op: 'save', project: p, path: file }).ok, true);
@@ -173,7 +173,7 @@ test('save/load round trip includes positions and invalid-but-editable drafts', 
   );
 });
 test('export creates a complete project and never overwrites an existing directory', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-export-')),
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'espresso-export-')),
     p = withoutCan(example());
   const r = request({ op: 'export', project: p, path: dir });
   assert.equal(r.ok, true);

@@ -81,7 +81,7 @@ export interface DesktopApi {
 }
 declare global {
   interface Window {
-    taskflow: DesktopApi;
+    espresso: DesktopApi;
   }
 }
 export const fieldTypes = [

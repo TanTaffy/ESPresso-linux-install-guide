@@ -12,14 +12,14 @@ let baseline: Project | null = null;
 let dirty = false,
   closing = false;
 const entry = path.resolve(__dirname, '../dist/index.html');
-if (process.env.TASKFLOW_TEST_DATA)
-  app.setPath('userData', process.env.TASKFLOW_TEST_DATA);
+if (process.env.ESPRESSO_TEST_DATA)
+  app.setPath('userData', process.env.ESPRESSO_TEST_DATA);
 const core = () =>
   app.isPackaged
-    ? path.join(process.resourcesPath, 'core/taskflow-core.exe')
-    : path.resolve(__dirname, '../build/native/Release/taskflow-core.exe');
+    ? path.join(process.resourcesPath, 'core/espresso-core.exe')
+    : path.resolve(__dirname, '../build/native/Release/espresso-core.exe');
 const autosave = () =>
-  path.join(app.getPath('userData'), 'recovery.taskflow.json');
+  path.join(app.getPath('userData'), 'recovery.espresso.json');
 const native = createNativeClient(core);
 let draftChain: Promise<unknown> = Promise.resolve();
 let pendingDraft: Project | null = null;
@@ -29,8 +29,8 @@ async function save(project: Project, saveAs = false) {
   if (!destination || saveAs) {
     const answer = await dialog.showSaveDialog(window, {
       title: 'Save ESPresso layout',
-      defaultPath: destination || `${project.name}.taskflow.json`,
-      filters: [{ name: 'ESPresso layout', extensions: ['taskflow.json'] }],
+      defaultPath: destination || `${project.name}.espresso.json`,
+      filters: [{ name: 'ESPresso layout', extensions: ['espresso.json'] }],
     });
     if (answer.canceled || !answer.filePath) return null;
     destination = answer.filePath;
@@ -108,7 +108,7 @@ app.whenReady().then(() => {
     const answer = await dialog.showOpenDialog(window, {
       title: 'Open ESPresso layout',
       properties: ['openFile'],
-      filters: [{ name: 'ESPresso layout', extensions: ['json'] }],
+      filters: [{ name: 'ESPresso layout', extensions: ['espresso.json'] }],
     });
     if (answer.canceled) return null;
     const result = await native({ op: 'load', path: answer.filePaths[0] });
@@ -196,7 +196,7 @@ app.whenReady().then(() => {
     }
   });
   window.once('ready-to-show', () => {
-    if (!process.env.TASKFLOW_TEST_HEADLESS) window.show();
+    if (!process.env.ESPRESSO_TEST_HEADLESS) window.show();
   });
   void window.loadFile(entry);
 });

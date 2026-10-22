@@ -201,7 +201,7 @@ export default function App() {
                 className="palette-button"
                 draggable
                 onDragStart={(e) =>
-                  e.dataTransfer.setData('application/taskflow', 'task')
+                  e.dataTransfer.setData('application/espresso', 'task')
                 }
                 onClick={() => addNode('task')}
               >
@@ -215,7 +215,7 @@ export default function App() {
                 className="palette-button teal"
                 draggable
                 onDragStart={(e) =>
-                  e.dataTransfer.setData('application/taskflow', 'struct')
+                  e.dataTransfer.setData('application/espresso', 'struct')
                 }
                 onClick={() => addNode('struct')}
               >
@@ -230,7 +230,7 @@ export default function App() {
                 draggable
                 disabled={busy}
                 onDragStart={(e) =>
-                  e.dataTransfer.setData('application/taskflow', 'can')
+                  e.dataTransfer.setData('application/espresso', 'can')
                 }
                 onClick={() => void addCanTask()}
               >
@@ -322,7 +322,7 @@ export default function App() {
               }}
               onDrop={(e) => {
                 e.preventDefault();
-                const kind = e.dataTransfer.getData('application/taskflow');
+                const kind = e.dataTransfer.getData('application/espresso');
                 if (kind === 'can') {
                   void addCanTask(
                     flow.current?.screenToFlowPosition({
@@ -540,7 +540,7 @@ export default function App() {
                 className="button primary"
                 onClick={() => {
                   void run(async () => {
-                    const r = await window.taskflow.save(project);
+                    const r = await window.espresso.save(project);
                     if (r) await replaceDocument(confirm);
                   });
                 }}

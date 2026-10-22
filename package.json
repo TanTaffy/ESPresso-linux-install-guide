@@ -1,6 +1,6 @@
 {
-  "name": "taskflow-desktop",
-  "version": "0.1.3",
+  "name": "espresso-desktop",
+  "version": "0.1.4",
   "description": "ESPresso: visual FreeRTOS layouts and ESP-IDF C++ skeletons",
   "author": "ESPresso",
   "license": "MIT",
@@ -41,7 +41,7 @@
   },
   "build": {
     "npmRebuild": false,
-    "appId": "uk.taskflow.desktop",
+    "appId": "uk.espresso.desktop",
     "productName": "ESPresso",
     "directories": {
       "output": "release"
@@ -53,8 +53,8 @@
     ],
     "extraResources": [
       {
-        "from": "build/native/Release/taskflow-core.exe",
-        "to": "core/taskflow-core.exe"
+        "from": "build/native/Release/espresso-core.exe",
+        "to": "core/espresso-core.exe"
       },
       {
         "from": "native/third_party/nlohmann/LICENSE.MIT",
@@ -62,7 +62,7 @@
       },
       {
         "from": "LICENSE",
-        "to": "licenses/Taskflow.LICENSE.txt"
+        "to": "licenses/ESPresso.LICENSE.txt"
       },
       {
         "from": "public/brand/espresso-mark.png",
