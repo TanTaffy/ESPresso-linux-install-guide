@@ -28,6 +28,23 @@ void check_shape(const json &p)
             "Project name and target are required.");
     require(p.contains("nodes") && p["nodes"].is_array() && p["nodes"].size() <= 200,
             "A project supports up to 200 nodes.");
+    check_libraries(p);
+    if (p.contains("code"))
+    {
+        require(p["code"].is_object() && p["code"].size() <= 6000,
+                "Invalid implementation sections.");
+        size_t total = 0;
+        for (const auto &[key, value] : p["code"].items())
+        {
+            require(std::regex_match(key, std::regex("[a-z]+-[0-9a-f]+")) && value.is_string(),
+                    "Invalid implementation section.");
+            const auto text = value.get<std::string>();
+            total += text.size();
+            require(text.find('\0') == std::string::npos && (text.empty() || text.back() == '\n'),
+                    "Invalid implementation text.");
+        }
+        require(total <= 2 * 1024 * 1024, "Implementation sections exceed 2 MB.");
+    }
     std::set<std::string> ids;
     auto id = [&](const json &item)
     {

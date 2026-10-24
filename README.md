@@ -22,12 +22,28 @@ Source builds require Windows x64, Node.js 22.14+ and Visual Studio 2022 C++ Bui
 - Per-task setup/loop placeholders, timing, priority, stack size and core affinity
 - Mutex-protected snapshot structs with typed fields and initial values
 - Save/open layouts, recovery copies and undo/redo
+- Import exported projects with implementation sections preserved by stable ID
+- Manage local C/C++ libraries or public GitHub releases and assign them to tasks
 - A CAN task preset marked with the Manchester Stinger bee
 - ESP-IDF project export, with message IDs and payload packing left as TODOs
 
 Each CAN export downloads the latest **stable published MSM_CAN release** and records its tag and commit in `msm_can.lock.json`. Internet access is required for CAN exports. Projects without a CAN preset export locally. There is no packet-configuration GUI or built-in code editor.
 
 Exports create a new project folder and never overwrite existing handwritten code. Startup always opens a blank **New layout**; saved layouts and the pressure example are explicit choices.
+
+## Import and preserve code
+
+Exports include `espresso.project.json`. Write your implementation inside the generated `espresso:begin` / `espresso:end` sections, then use **Import project** to select that manifest. ESPresso checks the expected files, markers and generated structure before restoring the diagram and code. Task files provide sections for includes, helpers, persistent state, setup/loop variables and each placeholder; `main.cpp` has sections for shared initialisation and helpers.
+
+Imported placeholders remain steps and show **Code present** when their section contains implementation. Their code follows the stable ID through renaming and reordering. Deleted steps/tasks retain their code in the layout; export places unused implementation in `espresso-recovered-code.txt` and shows a warning. The step inspector offers a read-only preview. Import captures a snapshot: re-import after further source edits. Export into a fresh folder.
+
+Import supports manifests exported by version 0.2.0 onwards. Changes outside editable sections, missing files/markers and extra source files are rejected with the affected path. ESP-IDF build directories, Git metadata and generated sdkconfig files are ignored; the layout's target and `sdkconfig.defaults` remain the configuration source. Earlier skeletons have no preservation markers.
+
+## Libraries
+
+Use **Libraries → Local folder** to bundle a simple C/C++ source tree, or **GitHub release** to enter a public `owner/repository` and `latest` or a stable release tag. Specify task include headers and ESP-IDF component dependencies, then assign libraries under **Task steps → Libraries**. Only assigned libraries are exported. Local source is stored in saved layouts; GitHub source is resolved to a commit and downloaded on every export. Resolved versions are recorded in `espresso.libraries.lock.json`.
+
+The manager generates component CMake files and preserves source directory paths. It supports source/header libraries up to 2 MB and 300 files per library, not custom build scripts or binary packages. Examples/tests/build folders are excluded. Write namespace calls, class instances and initialisation in the editable code sections. Assignment generates includes and linkage; C++ does not enforce per-task access. The CAN preset uses the built-in MSM_CAN entry and always fetches its latest stable release.
 
 ## Checks
 

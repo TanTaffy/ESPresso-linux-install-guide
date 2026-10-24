@@ -15,6 +15,7 @@ import {
   FilePlus2,
   FolderOpen,
   ListOrdered,
+  Library,
   Plus,
   Redo2,
   Repeat2,
@@ -32,6 +33,7 @@ import { useEditor } from './editor/useEditor';
 import { ExportScreen } from './screens/ExportScreen';
 import { StructScreen } from './screens/StructScreen';
 import { TaskScreen } from './screens/TaskScreen';
+import { LibraryScreen } from './screens/LibraryScreen';
 
 export default function App() {
   const editor = useEditor();
@@ -110,6 +112,14 @@ export default function App() {
         <div className="header-actions">
           <button
             className="button quiet"
+            disabled={busy}
+            onClick={() => requestDocument('import')}
+          >
+            <FolderOpen size={16} />
+            Import project
+          </button>
+          <button
+            className="button quiet"
             onClick={() => requestDocument('open')}
             disabled={busy}
           >
@@ -141,6 +151,7 @@ export default function App() {
             { id: 'canvas', name: 'Canvas', icon: Workflow },
             { id: 'task', name: 'Task steps', icon: ListOrdered },
             { id: 'struct', name: 'Shared structs', icon: Braces },
+            { id: 'libraries', name: 'Libraries', icon: Library },
             { id: 'export', name: 'Export', icon: FileCode2 },
           ] as const
         ).map(({ id, name, icon: Icon }) => (
@@ -510,6 +521,7 @@ export default function App() {
       )}
       {view === 'task' && <TaskScreen {...editor} />}
       {view === 'struct' && <StructScreen {...editor} />}
+      {view === 'libraries' && <LibraryScreen {...editor} />}
       {view === 'export' && <ExportScreen {...editor} />}
       {message && (
         <div className="action-toast" role="status" aria-live="polite">

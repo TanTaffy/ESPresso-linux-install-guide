@@ -29,6 +29,8 @@ type Props = Pick<
   | 'changeStep'
   | 'moveStep'
   | 'reorder'
+  | 'project'
+  | 'preview'
 >;
 export function TaskScreen({
   setView,
@@ -44,6 +46,8 @@ export function TaskScreen({
   changeStep,
   moveStep,
   reorder,
+  project,
+  preview,
 }: Props) {
   return task ? (
     <>
@@ -77,6 +81,32 @@ export function TaskScreen({
         <aside className="task-settings">
           <h3>Task settings</h3>
           <TaskSettings task={task} updateTask={updateTask} />
+          <h3>Libraries</h3>
+          {!project?.libraries?.length && (
+            <p className="info-note">Add libraries on the Libraries screen.</p>
+          )}
+          {project?.libraries?.map((lib) => {
+            const required = task.preset === 'msm_can' && lib.id === 'msm-can';
+            return (
+              <label className="library-assignment" key={lib.id}>
+                <input
+                  type="checkbox"
+                  aria-label={`Give ${task.name} access to ${lib.name}`}
+                  checked={required || (task.libraryIds ?? []).includes(lib.id)}
+                  disabled={required}
+                  onChange={(e) =>
+                    updateTask((t) => {
+                      t.libraryIds = e.target.checked
+                        ? [...(t.libraryIds ?? []), lib.id]
+                        : (t.libraryIds ?? []).filter((id) => id !== lib.id);
+                    })
+                  }
+                />
+                {lib.name}
+                {required && <small>preset</small>}
+              </label>
+            );
+          })}
         </aside>
         <main className="steps-editor">
           {(['setup', 'loop'] as Phase[]).map((phase) => (
@@ -123,7 +153,9 @@ export function TaskScreen({
                       <strong>{s.name || 'Unnamed step'}</strong>
                       <small>
                         {s.kind === 'placeholder'
-                          ? 'Code placeholder'
+                          ? preview?.stepStates?.[s.id] === 'Code present'
+                            ? 'Code placeholder · Code present'
+                            : 'Code placeholder · Empty'
                           : `${s.kind === 'read' ? 'Read' : 'Publish'} shared snapshot`}
                       </small>
                     </div>
@@ -241,6 +273,18 @@ export function TaskScreen({
                     The name and note become TODO comments in the generated
                     function. Write the implementation in your usual editor.
                   </div>
+                  {preview?.stepCode?.[selectedStep.id] && (
+                    <details className="imported-code">
+                      <summary>
+                        Imported code · {preview.stepStates?.[selectedStep.id]}
+                      </summary>
+                      <pre>{preview.stepCode[selectedStep.id]}</pre>
+                      <p>
+                        Read-only snapshot. Re-import the project after editing
+                        its source files.
+                      </p>
+                    </details>
+                  )}
                 </>
               ) : (
                 <>

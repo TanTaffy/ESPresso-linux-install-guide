@@ -11,7 +11,9 @@ add_library(espresso_core STATIC
   src/presets.cpp
   src/storage.cpp
   src/protocol.cpp
-  src/msm_release.cpp
+  src/github_release.cpp
+  src/project.cpp
+  src/libraries.cpp
 )
 target_compile_features(espresso_core PUBLIC cxx_std_17)
 target_include_directories(espresso_core PUBLIC include third_party)

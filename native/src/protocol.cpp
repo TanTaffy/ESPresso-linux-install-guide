@@ -1,5 +1,4 @@
 #include "espresso/core.hpp"
-#include "espresso/msm_release.hpp"
 #include <algorithm>
 
 namespace espresso
@@ -8,23 +7,51 @@ json handle(const json &request)
 {
     const std::string op = request.at("op");
     if (op == "example")
-        return {{"project", example()}};
+    {
+        auto p = example();
+        normalize_project(p);
+        return {{"project", p}};
+    }
     if (op == "new")
         return {{"project",
                  {{"version", 1},
                   {"name", "untitled-project"},
                   {"target", "esp32s3"},
+                  {"libraries", json::array()},
                   {"nodes", json::array()}}}};
     if (op == "load")
     {
         auto p = json::parse(read_file(input_path(request)));
+        normalize_project(p);
         check_shape(p);
         return {{"project", p}, {"diagnostics", validate(p)}};
     }
-    const auto &project = request.at("project");
+    if (op == "import-project")
+    {
+        auto p = import_project(input_path(request));
+        return {{"project", p}, {"diagnostics", validate(p)}};
+    }
+    if (op == "local-library")
+        return {{"library", local_library(input_path(request))}};
+    auto project = request.at("project");
+    normalize_project(project);
     check_shape(project);
+    if (op == "check-library")
+    {
+        for (const auto &lib : project["libraries"])
+            if (lib["source"] == "local")
+                library_preview(lib);
+        return {{"valid", true}};
+    }
     if (op == "can-preset")
-        return {{"task", can_preset(project, request.at("position"))}};
+    {
+        auto task = can_preset(project, request.at("position"));
+        auto libs = project["libraries"];
+        if (std::none_of(libs.begin(), libs.end(),
+                         [](const json &l) { return l["id"] == "msm-can"; }))
+            libs.push_back(builtin_can_library());
+        return {{"task", task}, {"libraries", libs}};
+    }
     if (op == "save")
     {
         auto path = input_path(request);
@@ -36,9 +63,30 @@ json handle(const json &request)
     if (op == "validate")
         return {{"diagnostics", diagnostics}, {"valid", valid}};
     if (op == "preview")
+    {
+        const auto files = valid ? json(generate(project)) : json::object();
+        if (files.contains("espresso-recovered-code.txt"))
+            diagnostics.push_back({{"severity", "warning"},
+                                   {"message", "Removed sections contain code. Export retains it "
+                                               "in espresso-recovered-code.txt."},
+                                   {"nodeId", ""}});
+        json step_code = json::object();
+        const auto code = project.value("code", json::object());
+        for (const auto &task : project["nodes"])
+            if (task["kind"] == "task")
+                for (const char *phase : {"setup", "loop"})
+                    for (const auto &step : task[phase])
+                    {
+                        const auto key = region_key("step", step["id"]);
+                        if (code.contains(key))
+                            step_code[step["id"].get<std::string>()] = code[key];
+                    }
         return {{"diagnostics", diagnostics},
                 {"valid", valid},
-                {"files", valid ? json(generate(project)) : json::object()}};
+                {"stepStates", code_states(project)},
+                {"stepCode", step_code},
+                {"files", files}};
+    }
     if (op == "export")
     {
         require(valid, "Fix validation errors before exporting.");
@@ -49,18 +97,13 @@ json handle(const json &request)
         require(!fs::exists(destination),
                 "The export folder already exists. Choose another parent or change the project "
                 "name; existing files will not be overwritten.");
-        std::string can_version;
-        const bool with_can =
-            std::any_of(project["nodes"].begin(), project["nodes"].end(), [](const json &n)
-                        { return n["kind"] == "task" && n.value("preset", "") == "msm_can"; });
-        if (with_can)
-        {
-            const auto release = msm_release::latest();
-            for (const auto &[name, text] : release.files)
-                files[name] = text;
-            files["msm_can.lock.json"] = release.lock.dump(2) + "\n";
-            can_version = release.lock.at("release");
-        }
+        const auto locks = export_libraries(project, files);
+        std::string can_version =
+            locks.contains("msm-can") ? locks["msm-can"].value("release", "") : "";
+        files["espresso.project.json"] = project_manifest(project, files).dump(2) + "\n";
+        require(
+            files["espresso.project.json"].size() <= 8 * 1024 * 1024,
+            "Project manifest exceeds the 8 MB import limit. Reduce bundled source or code size.");
         const auto staging =
             parent / (".espresso-export-" +
                       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));

@@ -19,6 +19,7 @@ export type Task = {
   stackBytes: number;
   core: 'any' | '0' | '1';
   preset?: 'msm_can';
+  libraryIds?: string[];
   setup: Step[];
   loop: Step[];
 };
@@ -43,6 +44,18 @@ export type Project = {
   name: string;
   target: 'esp32s3' | 'esp32' | 'esp32c3';
   nodes: LayoutNode[];
+  libraries?: Library[];
+  code?: Record<string, string>;
+};
+export type Library = {
+  id: string;
+  name: string;
+  source: 'local' | 'github';
+  repository?: string;
+  version: string;
+  headers: string[];
+  dependencies: string[];
+  files?: Record<string, string>;
 };
 export type Diagnostic = {
   severity: 'error' | 'warning';
@@ -53,6 +66,8 @@ export type Preview = {
   valid: boolean;
   diagnostics: Diagnostic[];
   files: Record<string, string>;
+  stepStates?: Record<string, string>;
+  stepCode?: Record<string, string>;
 };
 export type Boot = {
   project: Project;
@@ -72,10 +87,16 @@ export interface DesktopApi {
   draft(project: Project, dirty: boolean): Promise<void>;
   save(project: Project, saveAs?: boolean): Promise<SaveResult>;
   open(): Promise<{ project: Project; path: string } | null>;
+  importProject(): Promise<{ project: Project } | null>;
+  localLibrary(): Promise<Omit<Library, 'id'> | null>;
+  checkLibrary(project: Project): Promise<boolean>;
   export(project: Project): Promise<ExportResult>;
   example(): Promise<Project>;
   empty(): Promise<Project>;
-  canPreset(project: Project, position: Position): Promise<Task>;
+  canPreset(
+    project: Project,
+    position: Position,
+  ): Promise<{ task: Task; libraries: Library[] }>;
   newDocument(project: Project): Promise<void>;
   revealExport(): Promise<void>;
 }

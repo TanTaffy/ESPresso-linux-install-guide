@@ -288,3 +288,222 @@ test('malformed files and unknown schema versions return actionable errors', () 
   p2.nodes[0].setup = 'wrong';
   assert.equal(request({ op: 'preview', project: p2 }).ok, false);
 });
+
+const sectionKey = (kind, id) => `${kind}-${Buffer.from(id).toString('hex')}`;
+function exportedFixture() {
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'espresso-project-'));
+  const project = withoutCan(example());
+  const result = request({ op: 'export', project, path: parent });
+  assert.equal(result.ok, true, result.error);
+  return {
+    project,
+    folder: result.result.path,
+    manifest: path.join(result.result.path, 'espresso.project.json'),
+  };
+}
+function editSection(file, key, code) {
+  const text = fs.readFileSync(file, 'utf8');
+  const pattern = new RegExp(
+    `(// espresso:begin ${key}\\n)[\\s\\S]*?(?= *// espresso:end ${key})`,
+  );
+  assert.match(text, pattern);
+  fs.writeFileSync(
+    file,
+    text.replace(pattern, (_, begin) => begin + code),
+  );
+}
+test('project import preserves code by ID through rename, reorder, save and re-export', () => {
+  const { project, folder, manifest } = exportedFixture();
+  const step = project.nodes[0].loop[0],
+    key = sectionKey('step', step.id);
+  const code =
+    '    pressure.raw_count = 42;\n    // User implementation, including blank lines.\n\n';
+  editSection(path.join(folder, 'main/tasks/adc_task.cpp'), key, code);
+  editSection(
+    path.join(folder, 'main/tasks/adc_task.cpp'),
+    sectionKey('state', 'task-adc'),
+    'static int samples = 0;\n',
+  );
+  const imported = request({ op: 'import-project', path: manifest });
+  assert.equal(imported.ok, true, imported.error);
+  const p = imported.result.project;
+  assert.equal(p.code[key], code);
+  p.nodes[0].symbol = 'sensor';
+  p.nodes[0].loop.reverse();
+  p.nodes[0].loop.find((s) => s.id === step.id).name = 'Renamed implementation';
+  const preview = request({ op: 'preview', project: p }).result;
+  assert.equal(preview.stepStates[step.id], 'Code present');
+  assert.ok(preview.files['main/tasks/sensor_task.cpp'].includes(code));
+  assert.match(
+    preview.files['main/tasks/sensor_task.cpp'],
+    /static int samples = 0/,
+  );
+  const savePath = path.join(
+    os.tmpdir(),
+    `espresso-preserved-${Date.now()}.espresso.json`,
+  );
+  assert.equal(request({ op: 'save', project: p, path: savePath }).ok, true);
+  assert.equal(
+    request({ op: 'load', path: savePath }).result.project.code[key],
+    code,
+  );
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'espresso-reexport-'));
+  const output = request({ op: 'export', project: p, path: parent });
+  assert.equal(output.ok, true, output.error);
+  assert.equal(
+    request({
+      op: 'import-project',
+      path: path.join(output.result.path, 'espresso.project.json'),
+    }).result.project.code[key],
+    code,
+  );
+  p.nodes[0].loop = p.nodes[0].loop.filter((s) => s.id !== step.id);
+  const removed = request({ op: 'preview', project: p }).result;
+  assert.ok(removed.files['espresso-recovered-code.txt'].includes(code));
+  assert.ok(
+    removed.diagnostics.some((d) => d.message.includes('Removed sections')),
+  );
+});
+test('project import rejects structural changes, missing markers/files and unsafe inventories', () => {
+  for (const change of [
+    'structure',
+    'marker',
+    'missing',
+    'extra',
+    'path',
+    'layout',
+  ]) {
+    const { folder, manifest } = exportedFixture();
+    const file = path.join(folder, 'main/tasks/adc_task.cpp');
+    if (change === 'structure')
+      fs.appendFileSync(file, 'void unmanaged() {}\n');
+    if (change === 'marker')
+      fs.writeFileSync(
+        file,
+        fs
+          .readFileSync(file, 'utf8')
+          .replace('espresso:end', 'espresso:broken'),
+      );
+    if (change === 'missing') fs.unlinkSync(file);
+    if (change === 'extra')
+      fs.writeFileSync(path.join(folder, 'extra.cpp'), 'int unmanaged;');
+    if (change === 'path' || change === 'layout') {
+      const doc = JSON.parse(fs.readFileSync(manifest, 'utf8'));
+      if (change === 'path')
+        doc.files['../escape.cpp'] = { structure: '', sections: [] };
+      else doc.layout.nodes[0].periodMs = 999;
+      fs.writeFileSync(manifest, JSON.stringify(doc));
+    }
+    const result = request({ op: 'import-project', path: manifest });
+    assert.equal(result.ok, false, `${change} must be rejected`);
+    assert.ok(result.error);
+  }
+});
+test('local libraries export unchanged source, headers and dependencies only for assigned tasks', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'MSM_LiveData-'));
+  fs.mkdirSync(path.join(dir, 'include'));
+  fs.mkdirSync(path.join(dir, 'src'));
+  fs.writeFileSync(
+    path.join(dir, 'include/MSM_LiveData.hpp'),
+    '#pragma once\nnamespace MSM_LiveData { void publish(); }\n',
+  );
+  const implementation =
+    '#include "MSM_LiveData.hpp"\nvoid MSM_LiveData::publish() {}\n';
+  fs.writeFileSync(path.join(dir, 'src/MSM_LiveData.cpp'), implementation);
+  const lib = request({ op: 'local-library', path: dir }).result.library;
+  Object.assign(lib, {
+    id: 'live-data',
+    name: 'MSM_LiveData',
+    headers: ['MSM_LiveData.hpp'],
+    dependencies: ['freertos'],
+  });
+  const p = withoutCan(example());
+  p.libraries = [lib];
+  p.nodes[0].libraryIds = [lib.id];
+  const result = request({ op: 'preview', project: p });
+  assert.equal(result.ok, true, result.error);
+  const files = result.result.files;
+  assert.match(files['main/tasks/adc_task.cpp'], /#include "MSM_LiveData.hpp"/);
+  assert.doesNotMatch(files['main/tasks/can_task.cpp'], /MSM_LiveData/);
+  assert.equal(
+    files['components/MSM_LiveData/src/MSM_LiveData.cpp'],
+    implementation,
+  );
+  assert.match(
+    files['components/MSM_LiveData/CMakeLists.txt'],
+    /REQUIRES freertos/,
+  );
+  assert.match(files['main/CMakeLists.txt'], /PRIV_REQUIRES MSM_LiveData/);
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'espresso-lib-export-'));
+  const output = request({ op: 'export', project: p, path: parent });
+  assert.equal(output.ok, true, output.error);
+  const imported = request({
+    op: 'import-project',
+    path: path.join(output.result.path, 'espresso.project.json'),
+  });
+  assert.equal(imported.ok, true, imported.error);
+  assert.deepEqual(imported.result.project.libraries, [lib]);
+  p.nodes[0].libraryIds = [];
+  assert.equal(
+    Object.keys(request({ op: 'preview', project: p }).result.files).some((f) =>
+      f.startsWith('components/'),
+    ),
+    false,
+  );
+  p.nodes[0].libraryIds = ['missing'];
+  assert.equal(request({ op: 'preview', project: p }).ok, false);
+  lib.dependencies = ['x) injected('];
+  assert.equal(request({ op: 'preview', project: p }).ok, false);
+});
+
+test(
+  'generic GitHub libraries resolve a pinned release and survive project import',
+  { skip: !process.env.ESPRESSO_LIVE_CAN },
+  () => {
+    const p = withoutCan(example());
+    p.libraries = [
+      {
+        id: 'can-copy',
+        name: 'MSM_CAN_Copy',
+        source: 'github',
+        repository: 'ManchesterStingerMotorsports/MSM_CAN',
+        version: 'v1.0.0',
+        headers: ['MSM_CAN.hpp'],
+        dependencies: [
+          'esp_driver_gpio',
+          'esp_driver_twai',
+          'esp_timer',
+          'freertos',
+        ],
+      },
+    ];
+    p.nodes[0].libraryIds = ['can-copy'];
+    const parent = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'espresso-github-lib-'),
+    );
+    const result = request({ op: 'export', project: p, path: parent });
+    assert.equal(result.ok, true, result.error);
+    const lock = JSON.parse(
+      fs.readFileSync(
+        path.join(result.result.path, 'espresso.libraries.lock.json'),
+        'utf8',
+      ),
+    )['can-copy'];
+    assert.equal(lock.release, 'v1.0.0');
+    assert.match(lock.commit, /^[a-f0-9]{40}$/);
+    assert.ok(
+      fs.existsSync(
+        path.join(
+          result.result.path,
+          'components/MSM_CAN_Copy/main/MSM_CAN.cpp',
+        ),
+      ),
+    );
+    const imported = request({
+      op: 'import-project',
+      path: path.join(result.result.path, 'espresso.project.json'),
+    });
+    assert.equal(imported.ok, true, imported.error);
+    assert.deepEqual(imported.result.project.libraries, p.libraries);
+  },
+);

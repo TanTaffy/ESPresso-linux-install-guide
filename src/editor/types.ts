@@ -1,6 +1,6 @@
 import type { Node } from '@xyflow/react';
 import type { LayoutNode, Phase } from '../model';
-export type View = 'canvas' | 'task' | 'struct' | 'export';
+export type View = 'canvas' | 'task' | 'struct' | 'libraries' | 'export';
 export type StepSelection = { phase: Phase; id: string };
 export type FlowData = {
   node: LayoutNode;

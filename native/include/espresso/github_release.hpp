@@ -4,7 +4,7 @@
 #include <nlohmann/json.hpp>
 #include <string>
 
-namespace msm_release
+namespace github_release
 {
 using json = nlohmann::json;
 struct Download
@@ -15,5 +15,6 @@ struct Download
 
 // Resolves and downloads a stable GitHub release for each CAN export.
 // Throws before the export directory is created if resolution/download fails.
-Download latest();
-} // namespace msm_release
+
+Download fetch_library(const json &library);
+} // namespace github_release

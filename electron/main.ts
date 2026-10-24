@@ -85,6 +85,10 @@ app.whenReady().then(() => {
     return { project: r.project, restored: false };
   });
   register('preview', (project: Project) => native({ op: 'preview', project }));
+  register('check-library', async (project: Project) => {
+    await native({ op: 'check-library', project });
+    return true;
+  });
   register('draft', (project: Project, isDirty: boolean) => {
     latest = project;
     dirty = isDirty;
@@ -104,6 +108,35 @@ app.whenReady().then(() => {
     return draftChain.then(() => {});
   });
   register('save', save);
+  register('import-project', async () => {
+    const answer = await dialog.showOpenDialog(window, {
+      title: 'Import ESPresso project',
+      properties: ['openFile'],
+      filters: [{ name: 'ESPresso project', extensions: ['project.json'] }],
+    });
+    if (answer.canceled || !answer.filePaths[0]) return null;
+    const result = await native(
+      { op: 'import-project', path: answer.filePaths[0] },
+      120000,
+    );
+    currentPath = null;
+    latest = result.project;
+    baseline = result.project;
+    dirty = false;
+    return { project: result.project };
+  });
+  register('local-library', async () => {
+    const answer = await dialog.showOpenDialog(window, {
+      title: 'Choose library source folder',
+      properties: ['openDirectory'],
+    });
+    if (answer.canceled || !answer.filePaths[0]) return null;
+    const result = await native({
+      op: 'local-library',
+      path: answer.filePaths[0],
+    });
+    return result.library;
+  });
   register('open', async () => {
     const answer = await dialog.showOpenDialog(window, {
       title: 'Open ESPresso layout',
@@ -150,7 +183,7 @@ app.whenReady().then(() => {
   });
   register('can-preset', async (project: Project, position: Position) => {
     const r = await native({ op: 'can-preset', project, position });
-    return r.task;
+    return r;
   });
   register('new-document', (project: Project) => {
     currentPath = null;

@@ -38,7 +38,9 @@ export function useEditor() {
   const [exportCanVersion, setExportCanVersion] = useState('');
   const [undo, setUndo] = useState<Project[]>([]),
     [redo, setRedo] = useState<Project[]>([]),
-    [confirm, setConfirm] = useState<null | 'new' | 'example' | 'open'>(null);
+    [confirm, setConfirm] = useState<
+      null | 'new' | 'example' | 'open' | 'import'
+    >(null);
   const flow = useRef<ReactFlowInstance<FlowNode> | null>(null),
     dragHistory = useRef(false);
   const fitPending = useRef(false);
@@ -201,9 +203,18 @@ export function useEditor() {
       notify('Layout saved');
     }
   }
-  async function replaceDocument(action: 'new' | 'example' | 'open') {
+  async function replaceDocument(
+    action: 'new' | 'example' | 'open' | 'import',
+  ) {
     await run(async () => {
-      if (action === 'open') {
+      if (action === 'import') {
+        const result = await window.espresso.importProject();
+        if (!result) return;
+        setProject(result.project);
+        setSavedPath(null);
+        setSelectedId(result.project.nodes[0]?.id ?? null);
+        notify('Project imported. Code preserved as a snapshot.');
+      } else if (action === 'open') {
         const result = await window.espresso.open();
         if (!result) return;
         setProject(result.project);
@@ -232,7 +243,7 @@ export function useEditor() {
     });
     setConfirm(null);
   }
-  function requestDocument(action: 'new' | 'example' | 'open') {
+  function requestDocument(action: 'new' | 'example' | 'open' | 'import') {
     if (dirty) setConfirm(action);
     else void replaceDocument(action);
   }
@@ -304,10 +315,13 @@ export function useEditor() {
         x: window.innerWidth * 0.43,
         y: window.innerHeight * 0.4,
       }) ?? { x: 80, y: 80 };
-    const node = await run(() => window.espresso.canPreset(base, pos));
-    if (!node) return;
-    change((p) => p.nodes.push(node));
-    setSelectedId(node.id);
+    const result = await run(() => window.espresso.canPreset(base, pos));
+    if (!result) return;
+    change((p) => {
+      p.nodes.push(result.task);
+      p.libraries = result.libraries;
+    });
+    setSelectedId(result.task.id);
     setStepSelection(null);
     setView('canvas');
     notify('CAN task added');

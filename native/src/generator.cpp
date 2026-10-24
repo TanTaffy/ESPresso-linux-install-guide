@@ -54,20 +54,16 @@ Files generate(const json &p)
     }
     const bool with_can = std::any_of(tasks.begin(), tasks.end(), [](const json &t)
                                       { return t.value("preset", "") == "msm_can"; });
-    if (with_can)
-    {
-        files["components/MSM_CAN/MSM_CAN.hpp"] =
-            "// Downloaded from the latest published MSM_CAN release during export.\n";
-        files["components/MSM_CAN/MSM_CAN.cpp"] =
-            "// Downloaded from the latest published MSM_CAN release during export.\n";
-        files["components/MSM_CAN/SOURCE.md"] =
-            "The latest stable GitHub release is resolved and downloaded on each export. The "
-            "actual version is recorded in msm_can.lock.json. An internet connection is required; "
-            "older bundled copies are never substituted.\n";
-        files["components/MSM_CAN/CMakeLists.txt"] =
-            "idf_component_register(\n    SRCS \"MSM_CAN.cpp\"\n    INCLUDE_DIRS \".\"\n    "
-            "REQUIRES esp_driver_gpio\n    PRIV_REQUIRES esp_driver_twai esp_timer freertos\n)\n";
-    }
+    std::set<std::string> used_libraries;
+    for (const auto &t : tasks)
+        for (const auto &id : task_library_ids(t))
+            used_libraries.insert(id);
+    for (const auto &lib : p.value("libraries", json::array()))
+        if (used_libraries.count(lib["id"]))
+        {
+            const auto content = library_preview(lib);
+            files.insert(content.begin(), content.end());
+        }
     files["CMakeLists.txt"] = "cmake_minimum_required(VERSION "
                               "3.16)\ninclude($ENV{IDF_PATH}/tools/cmake/project.cmake)\nproject(" +
                               p["name"].get<std::string>() + ")\n";
@@ -81,19 +77,28 @@ Files generate(const json &p)
     for (const auto &s : structs)
         cmake += "         \"shared/" + s["symbol"].get<std::string>() + ".cpp\"\n";
     cmake += "    INCLUDE_DIRS \".\"\n";
-    if (with_can)
-        cmake += "    PRIV_REQUIRES MSM_CAN\n";
+    if (!used_libraries.empty())
+    {
+        cmake += "    PRIV_REQUIRES";
+        for (const auto &lib : p.value("libraries", json::array()))
+            if (used_libraries.count(lib["id"]))
+                cmake += " " + lib["name"].get<std::string>();
+        cmake += "\n";
+    }
     cmake += ")\n";
     files["main/CMakeLists.txt"] = cmake;
     std::string main = "#include \"esp_err.h\"\n#include \"generated/task_runtime.hpp\"\n";
     for (const auto &s : structs)
         main += "#include \"shared/" + s["symbol"].get<std::string>() + ".hpp\"\n";
+    main += region(p, region_key("appincludes", "main"), "");
+    main += region(p, region_key("apphelpers", "main"), "");
     main += "\nextern \"C\" void app_main()\n{\n";
     for (const auto &s : structs)
         main += "    ESP_ERROR_CHECK(espresso::shared::init_" + s["symbol"].get<std::string>() +
                 "());\n";
-    main += "\n    // TODO: Initialise hardware shared by multiple tasks here.\n    "
-            "espresso::generated::start_tasks();\n}\n";
+    main += region(p, region_key("appinit", "main"),
+                   "    // TODO: Initialise shared hardware before starting tasks.\n", "    ");
+    main += "    espresso::generated::start_tasks();\n}\n";
     files["main/main.cpp"] = main;
     files["main/generated/task_runtime.hpp"] =
         "#pragma once\n\nnamespace espresso::generated {\nvoid start_tasks();\n}\n";
@@ -174,14 +179,22 @@ Files generate(const json &p)
         std::string source = "#include \"" + sym + "_task.hpp\"\n";
         std::set<std::string> includes;
         if (can_task)
-            source += "#include \"MSM_CAN.hpp\"\n#include \"esp_err.h\"\n";
+            source += "#include \"esp_err.h\"\n";
+        const auto assigned = task_library_ids(t);
+        for (const auto &lib : p.value("libraries", json::array()))
+            if (std::find(assigned.begin(), assigned.end(), lib["id"]) != assigned.end())
+                for (const auto &header : lib["headers"])
+                    source += "#include \"" + header.get<std::string>() + "\"\n";
         for (const auto *phase : {"setup", "loop"})
             for (const auto &step : t[phase])
                 if (step["kind"] != "placeholder")
                     includes.insert(by_id.at(step["structId"]).at("symbol"));
         for (const auto &s : includes)
             source += "#include \"shared/" + s + ".hpp\"\n";
+        source += region(p, region_key("includes", t["id"]), "");
+        source += region(p, region_key("helpers", t["id"]), "");
         source += "\nnamespace espresso::tasks::" + sym + " {\n";
+        source += region(p, region_key("state", t["id"]), "");
         for (const auto *phase : {"setup", "loop"})
         {
             source += "void " + std::string(phase) + "()\n{\n";
@@ -199,12 +212,14 @@ Files generate(const json &p)
                 }
             if (!locals.empty())
                 source += "\n";
+            source += region(p, region_key(std::string(phase) + "vars", t["id"]), "", "    ");
             for (const auto &step : t[phase])
             {
                 source += "    // " + comment(step["name"]) + "\n";
                 const std::string kind = step["kind"];
                 if (kind == "placeholder")
                 {
+                    const auto body_start = source.size();
                     std::istringstream lines(step["note"].get<std::string>());
                     std::string line;
                     bool any = false;
@@ -221,6 +236,9 @@ Files generate(const json &p)
                                   "*/));\n";
                     if (action == "msm_can_send")
                         source += "    // ESP_ERROR_CHECK(MSM_CAN::send_msg(can_frame));\n";
+                    const auto body = source.substr(body_start);
+                    source.resize(body_start);
+                    source += region(p, region_key("step", step["id"]), body, "    ");
                 }
                 else
                 {
@@ -237,6 +255,7 @@ Files generate(const json &p)
         source += "}\n";
         files["main/tasks/" + sym + "_task.cpp"] = source;
     }
+    add_recovered_code(p, files);
     files["espresso.layout.json"] = p.dump(2) + "\n";
     files["README.md"] =
         "# " + p["name"].get<std::string>() +
@@ -255,8 +274,10 @@ Files generate(const json &p)
         "are in bytes. Keep priorities in the default ESP-IDF range 1-24. Hardware APIs and "
         "sensor/CAN drivers are left for you to implement.\n\nSave the layout separately as a "
         ".espresso.json file. Exports always create a new directory and refuse to overwrite an "
-        "existing project. To regenerate after writing code, export to a fresh directory and merge "
-        "your changes with your usual tools.\n";
+        "existing project. Import espresso.project.json to restore the diagram and preserve code "
+        "inside espresso:begin/end sections. Edit only inside these sections; import verifies the "
+        "generated structure. Export to a fresh folder. Removed sections with code are saved in "
+        "espresso-recovered-code.txt. Configure library dependencies in ESPresso.\n";
     if (with_can)
         files["README.md"] +=
             "\n## MSM_CAN preset\n\nMSM_CAN is bundled in components/MSM_CAN and linked "
