@@ -182,6 +182,11 @@ json import_project(const fs::path &manifest)
             "Invalid project file inventory.");
     const auto root = fs::canonical(manifest.parent_path());
     auto code = p.value("code", json::object());
+    const auto expected_files = generate(p);
+    Files defaults;
+    for (const auto &[name, text] : expected_files)
+        for (const auto &[key, body] : sections(text, name).bodies)
+            defaults[key] = body;
     std::set<std::string> keys;
     size_t total = 0;
     for (const auto &[name, descriptor] : doc["files"].items())
@@ -204,12 +209,14 @@ json import_project(const fs::path &manifest)
         {
             require(expected.count(key) && keys.insert(key).second,
                     name + ": unexpected or duplicate section " + key);
-            code[key] = body;
+            // Unedited TODOs stay generated, so changing a note in the GUI still updates them.
+            // Explicit edits (including deleting a TODO) remain implementation snapshots.
+            if (code.contains(key) || !defaults.count(key) || defaults.at(key) != body)
+                code[key] = body;
         }
     }
     // Check that a manifest has not omitted required generated files or changed its layout.
-    auto expected = generate(p);
-    for (const auto &[name, text] : expected)
+    for (const auto &[name, text] : expected_files)
     {
         if (name == "espresso.layout.json" || name == "README.md" ||
             name == "espresso-recovered-code.txt" || name.rfind("components/", 0) == 0)

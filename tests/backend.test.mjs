@@ -399,6 +399,20 @@ test('project import rejects structural changes, missing markers/files and unsaf
     assert.ok(result.error);
   }
 });
+
+test('unedited imported placeholders keep generating updated notes', () => {
+  const { manifest } = exportedFixture();
+  const imported = request({ op: 'import-project', path: manifest });
+  assert.equal(imported.ok, true, imported.error);
+  const p = imported.result.project;
+  p.nodes[0].loop[0].note = 'Updated instruction after import';
+  const preview = request({ op: 'preview', project: p }).result;
+  assert.equal(preview.stepStates[p.nodes[0].loop[0].id], 'Empty');
+  assert.match(
+    preview.files['main/tasks/adc_task.cpp'],
+    /TODO: Updated instruction after import/,
+  );
+});
 test('local libraries export unchanged source, headers and dependencies only for assigned tasks', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'MSM_LiveData-'));
   fs.mkdirSync(path.join(dir, 'include'));
