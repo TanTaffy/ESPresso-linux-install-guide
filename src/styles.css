@@ -1215,12 +1215,7 @@ button:focus-visible {
   z-index: 50;
   pointer-events: none;
 }
-.bee-mark {
-  display: inline-block;
-  object-fit: contain;
-  mix-blend-mode: multiply;
-  flex-shrink: 0;
-}
+
 .release-label {
   margin-left: 12px;
   font-size: 11px;
@@ -1285,4 +1280,196 @@ button:focus-visible {
   border-radius: 8px;
   max-height: 320px;
   overflow: auto;
+}
+.template-layout,
+.config-layout {
+  display: grid;
+  grid-template-columns: minmax(250px, 0.7fr) minmax(440px, 1.6fr);
+  gap: 24px;
+  margin: 0 32px 28px;
+  min-height: 0;
+  overflow: auto;
+  align-items: start;
+}
+.template-editor,
+.config-settings,
+.config-source {
+  background: #fffcf7;
+  border: 1px solid #ded7ca;
+  border-radius: 12px;
+  padding: 24px;
+  min-width: 0;
+}
+.template-editor h3,
+.config-settings h2,
+.config-source h2 {
+  margin-bottom: 12px;
+}
+.template-editor details {
+  margin: 16px 0;
+  border: 1px solid #e9e3de;
+  border-radius: 8px;
+  padding: 12px;
+}
+.template-editor summary {
+  cursor: pointer;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.template-step {
+  border: 1px solid #e9e3de;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.template-step > .actions > input {
+  flex: 1;
+}
+.template-list .actions {
+  margin-top: 14px;
+}
+.template-list .library-card.selected {
+  border-color: #a8815d;
+}
+.config-source textarea {
+  min-height: 450px;
+  line-height: 1.6;
+  tab-size: 4;
+}
+.config-settings .info-note,
+.config-source .info-note,
+.template-editor .info-note {
+  margin: 12px 0;
+}
+.task-custom-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.icon-upload {
+  margin-top: 10px;
+}
+.icon-upload input {
+  font-size: 11px;
+}
+.catalog-note {
+  margin: 0 32px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: #837568;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  max-height: 130px;
+  overflow: auto;
+  flex-shrink: 0;
+}
+.catalog-error {
+  color: #aa4556;
+}
+.template-picker {
+  width: min(600px, 90vw);
+  max-height: 80vh;
+  overflow: auto;
+}
+.template-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 18px 0;
+  max-height: 45vh;
+  overflow: auto;
+}
+.template-choice {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  text-align: left;
+  border: 1px solid #e9e3de;
+  border-radius: 8px;
+  background: #fffdf8;
+  padding: 16px;
+}
+.template-choice:hover {
+  border-color: #a8815d;
+  background: #f8f3eb;
+}
+.template-choice > span {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+.template-choice small {
+  color: #837568;
+}
+.palette-button span {
+  min-width: 0;
+}
+.palette-button small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.type-editor {
+  background: #fffcf7;
+  border: 1px solid #ded7ca;
+  border-radius: 12px;
+  padding: 24px;
+  min-width: 0;
+}
+.header-preview {
+  white-space: pre;
+  overflow: auto;
+  max-height: 64vh;
+  min-height: 300px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 10px 0;
+}
+.check-row input {
+  width: auto;
+}
+.parameter-row {
+  border-top: 1px solid #e9e3de;
+  margin: 10px 0;
+  padding-top: 10px;
+}
+.type-editor textarea {
+  min-height: 80px;
+}
+.fields-table td:nth-child(3) input {
+  min-width: 70px;
+}
+
+.config-file-view {
+  margin: 0 32px 28px;
+  padding: 24px;
+  background: #fffcf7;
+  border: 1px solid #ded7ca;
+  border-radius: 12px;
+  overflow: auto;
+  min-height: 0;
+}
+.config-file-view .header-preview {
+  max-height: 56vh;
+}
+.setting-description {
+  margin: 10px 0;
+}
+.setting-description summary {
+  cursor: pointer;
+  color: #837568;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.parameter-settings > h3 {
+  margin-top: 12px;
 }

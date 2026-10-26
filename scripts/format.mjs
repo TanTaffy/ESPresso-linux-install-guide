@@ -5,11 +5,14 @@ import * as prettier from 'prettier';
 const check = process.argv.includes('--check');
 const roots = [
   'src',
+  'defaults',
+  'examples',
   'electron',
   'scripts',
   'tests',
   '.github',
   'README.md',
+  'releases',
   'package.json',
   'tsconfig.json',
   'vite.config.ts',

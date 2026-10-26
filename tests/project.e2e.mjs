@@ -17,11 +17,17 @@ const request = (value) => {
   assert.equal(response.ok, true, response.error);
   return response.result;
 };
-const project = request({ op: 'example' }).project;
+const project = request({
+  op: 'load',
+  path: path.resolve('examples/pressure-node.espresso.json'),
+}).project;
 for (const task of project.nodes)
   if (task.kind === 'task') {
-    delete task.preset;
-    for (const step of [...task.setup, ...task.loop]) delete step.action;
+    task.libraryIds = [];
+    if (task.symbol === 'can') {
+      delete project.code[`includes-${Buffer.from(task.id).toString('hex')}`];
+      delete project.code[`loopvars-${Buffer.from(task.id).toString('hex')}`];
+    }
   }
 const original = request({ op: 'export', project, path: data }).path;
 const source = path.join(original, 'main/tasks/adc_task.cpp');

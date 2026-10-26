@@ -8,12 +8,18 @@ endif()
 add_library(espresso_core STATIC
   src/validation.cpp
   src/generator.cpp
-  src/presets.cpp
   src/storage.cpp
   src/protocol.cpp
   src/github_release.cpp
   src/project.cpp
   src/libraries.cpp
+  src/features.cpp
+  src/templates.cpp
+  src/catalog.cpp
+  src/runtime_settings.cpp
+  src/config_file.cpp
+  src/preserved.cpp
+  src/data_types.cpp
 )
 target_compile_features(espresso_core PUBLIC cxx_std_17)
 target_include_directories(espresso_core PUBLIC include third_party)

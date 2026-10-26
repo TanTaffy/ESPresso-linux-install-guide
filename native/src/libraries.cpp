@@ -5,39 +5,12 @@
 
 namespace espresso
 {
-json builtin_can_library()
-{
-    return {{"id", "msm-can"},
-            {"name", "MSM_CAN"},
-            {"source", "github"},
-            {"repository", "ManchesterStingerMotorsports/MSM_CAN"},
-            {"version", "latest"},
-            {"headers", json::array({"MSM_CAN.hpp"})},
-            {"dependencies",
-             json::array({"esp_driver_gpio", "esp_driver_twai", "esp_timer", "freertos"})}};
-}
 void normalize_project(json &p)
 {
     if (!p.contains("libraries"))
         p["libraries"] = json::array();
-    bool needs_can = false, has_can = false;
-    for (const auto &task : p.at("nodes"))
-        if (task.value("preset", "") == "msm_can")
-            needs_can = true;
-    for (const auto &lib : p["libraries"])
-        if (lib.value("id", "") == "msm-can")
-            has_can = true;
-    if (needs_can && !has_can)
-        p["libraries"].push_back(builtin_can_library());
 }
-json task_library_ids(const json &task)
-{
-    auto ids = task.value("libraryIds", json::array());
-    if (task.value("preset", "") == "msm_can" &&
-        std::find(ids.begin(), ids.end(), "msm-can") == ids.end())
-        ids.push_back("msm-can");
-    return ids;
-}
+json task_library_ids(const json &task) { return task.value("libraryIds", json::array()); }
 bool source_file(const std::string &name)
 {
     return std::regex_match(name, std::regex(".*\\.(c|cc|cpp|cxx|S)"));
@@ -45,6 +18,9 @@ bool source_file(const std::string &name)
 bool library_file(const std::string &name)
 {
     const auto base = fs::path(name).filename().string();
+    if (std::regex_match(lower(base),
+                         std::regex("(?:example|test)(?:[_.-].*)?\\.(?:c|cc|cpp|cxx|h|hpp)")))
+        return false;
     return source_file(name) || std::regex_match(name, std::regex(".*\\.(h|hh|hpp|hxx|tpp|inl)")) ||
            base == "LICENSE" || base == "LICENSE.md" || base == "LICENSE.txt" ||
            base == "LICENSE.MIT" || base == "README.md";
@@ -111,10 +87,6 @@ void check_libraries(const json &p)
             }
             require(size <= 2 * 1024 * 1024, "A local library supports up to 2 MB of source.");
         }
-        if (lib["id"] == "msm-can")
-            require(
-                lib == builtin_can_library(),
-                "The CAN preset uses the built-in MSM_CAN library with the latest stable release.");
     }
     for (const auto &task : p["nodes"])
         if (task["kind"] == "task")
@@ -224,16 +196,32 @@ json local_library(const fs::path &folder)
 }
 json export_libraries(const json &p, Files &files)
 {
-    std::set<std::string> used;
+    std::set<std::string> used = type_libraries(p);
     for (const auto &task : p["nodes"])
         if (task["kind"] == "task")
             for (const auto &id : task_library_ids(task))
                 used.insert(id);
-    json locks = json::object();
+    json locks = p.value("libraryLocks", json::object());
     for (const auto &lib : p.value("libraries", json::array()))
     {
         if (!used.count(lib["id"]))
             continue;
+        const auto snapshots = p.value("extraFiles", json::object());
+        const auto prefix = "components/" + lib["name"].get<std::string>() + "/";
+        bool preserved = false;
+        for (const auto &[name, bytes] : snapshots.items())
+            if (name.rfind(prefix, 0) == 0)
+            {
+                preserved = true;
+                break;
+            }
+        if (preserved)
+        {
+            const auto previous = p.value("libraryLocks", json::object());
+            if (previous.contains(lib["id"].get<std::string>()))
+                locks[lib["id"].get<std::string>()] = previous[lib["id"].get<std::string>()];
+            continue;
+        }
         if (lib["source"] == "local")
         {
             auto local = library_preview(lib);
@@ -246,8 +234,6 @@ json export_libraries(const json &p, Files &files)
             for (const auto &[name, text] : release.files)
                 files[name] = text;
             locks[lib["id"].get<std::string>()] = release.lock;
-            if (lib["id"] == "msm-can")
-                files["msm_can.lock.json"] = release.lock.dump(2) + "\n";
         }
     }
     if (!locks.empty())

@@ -14,10 +14,17 @@ import {
   type SharedStruct,
   type Step,
   type Task,
+  type TaskTemplate,
 } from '../model';
+import { captureTemplate, withNewline } from '../templates';
 import type { FlowNode, StepSelection, View } from './types';
 
 export function useEditor() {
+  const [templates, setTemplates] = useState<TaskTemplate[]>([]);
+  const [templateFolder, setTemplateFolder] = useState('');
+  const [templateErrors, setTemplateErrors] = useState<string[]>([]);
+  const [templatePicker, setTemplatePicker] = useState(false);
+  const [templateDraft, setTemplateDraft] = useState<TaskTemplate | null>(null);
   const [project, setProject] = useState<Project | null>(null),
     [view, setView] = useState<View>('canvas');
   const [selectedId, setSelectedId] = useState<string | null>('task-adc'),
@@ -35,7 +42,6 @@ export function useEditor() {
     [savedPath, setSavedPath] = useState<string | null>(null),
     [busy, setBusy] = useState(false),
     [exportPath, setExportPath] = useState('');
-  const [exportCanVersion, setExportCanVersion] = useState('');
   const [undo, setUndo] = useState<Project[]>([]),
     [redo, setRedo] = useState<Project[]>([]),
     [confirm, setConfirm] = useState<
@@ -74,6 +80,17 @@ export function useEditor() {
     },
     [],
   );
+  async function refreshTemplates() {
+    const result = await run(() => window.espresso.templates());
+    if (result) {
+      setTemplates(result.items);
+      setTemplateFolder(result.path);
+      setTemplateErrors(result.errors);
+    }
+  }
+  useEffect(() => {
+    if (window.espresso) void refreshTemplates();
+  }, []);
   useEffect(() => {
     let alive = true;
     if (!window.espresso) {
@@ -267,10 +284,10 @@ export function useEditor() {
     return { i, symbol: `${kind}_${i}` };
   }
   function addNode(
-    kind: 'task' | 'struct',
+    kind: 'task' | 'struct' | 'queue',
     position?: { x: number; y: number },
   ) {
-    const { i, symbol } = uniqueSymbol(kind);
+    const { i, symbol } = uniqueSymbol(kind === 'queue' ? 'struct' : kind);
     const id = uid();
     const pos = position ??
       flow.current?.screenToFlowPosition({
@@ -294,12 +311,15 @@ export function useEditor() {
           }
         : {
             id,
-            kind,
+            kind: 'struct',
             name: `Shared data ${i}`,
             symbol,
             typeName: `SharedData${i}`,
             position: pos,
             fields: [],
+            ...(kind === 'queue'
+              ? { delivery: 'queue' as const, capacity: 8, name: `Queue ${i}` }
+              : {}),
           };
     change((p) => p.nodes.push(node));
     setSelectedId(id);
@@ -307,24 +327,60 @@ export function useEditor() {
     setView('canvas');
     notify(`${kind === 'task' ? 'Task' : 'Shared struct'} added`);
   }
-  async function addCanTask(position?: { x: number; y: number }) {
-    if (!project) return;
+  async function saveTemplate(template: TaskTemplate) {
+    template = structuredClone(template);
+    template.code = Object.fromEntries(
+      Object.entries(template.code).map(([key, value]) => [
+        key,
+        withNewline(value),
+      ]),
+    );
+    const result = await run(() => window.espresso.saveTemplate(template));
+    if (!result) return;
+    setTemplates(result.items);
+    setTemplateFolder(result.path);
+    setTemplateErrors(result.errors);
+    setTemplateDraft(null);
+    notify('Task type saved to your reusable templates');
+  }
+  async function deleteTemplate(id: string) {
+    const result = await run(() => window.espresso.deleteTemplate(id));
+    if (!result) return;
+    setTemplates(result.items);
+    setTemplateFolder(result.path);
+    setTemplateErrors(result.errors);
+    if (templateDraft?.id === id) setTemplateDraft(null);
+    notify('Task type deleted. Existing tasks are retained.');
+  }
+  async function addTemplateTask(
+    id: string,
+    position?: { x: number; y: number },
+  ) {
+    const template = templates.find((t) => t.id === id);
+    if (!project || !template) return;
     const base = project;
     const pos = position ??
       flow.current?.screenToFlowPosition({
         x: window.innerWidth * 0.43,
         y: window.innerHeight * 0.4,
       }) ?? { x: 80, y: 80 };
-    const result = await run(() => window.espresso.canPreset(base, pos));
+    const result = await run(() =>
+      window.espresso.instantiateTemplate(base, template, pos),
+    );
     if (!result) return;
     change((p) => {
-      p.nodes.push(result.task);
+      p.nodes = result.nodes;
       p.libraries = result.libraries;
+      p.code = result.code;
     });
-    setSelectedId(result.task.id);
-    setStepSelection(null);
+    setSelectedId(result.nodes.at(-1)!.id);
     setView('canvas');
-    notify('CAN task added');
+    notify(`${template.name} added`);
+  }
+  function newTemplate(fromTask?: Task) {
+    if (!project) return;
+    setTemplateDraft(captureTemplate(project, fromTask));
+    setView('templates');
   }
   function removeNode(id: string) {
     const n = project?.nodes.find((n) => n.id === id);
@@ -335,8 +391,15 @@ export function useEditor() {
         if (t.kind === 'task')
           for (const phase of ['setup', 'loop'] as Phase[])
             t[phase] = t[phase].filter(
-              (s) => s.kind === 'placeholder' || s.structId !== id,
+              (s) =>
+                (s.kind === 'placeholder' || s.structId !== id) &&
+                s.taskId !== id,
             );
+      for (const t of p.nodes)
+        if (t.kind === 'task') {
+          if (t.queueId === id) delete t.queueId;
+          t.queueIds = t.queueIds?.filter((q) => q !== id);
+        }
     });
     setSelectedId(null);
     setStepSelection(null);
@@ -350,16 +413,37 @@ export function useEditor() {
       name:
         kind === 'placeholder'
           ? 'New placeholder'
-          : kind === 'read'
-            ? 'Read shared data'
-            : 'Publish shared data',
+          : kind === 'notify'
+            ? 'Notify task'
+            : kind === 'send'
+              ? 'Send message'
+              : kind === 'receive'
+                ? 'Receive message'
+                : kind === 'read'
+                  ? 'Read shared data'
+                  : 'Publish shared data',
       note: '',
-      ...(kind !== 'placeholder'
-        ? {
-            structId: structs[0]?.id ?? '',
-            localName: structs[0]?.symbol ?? 'snapshot',
-          }
-        : {}),
+      ...(kind === 'notify'
+        ? { taskId: tasks.find((t) => t.trigger === 'notification')?.id ?? '' }
+        : kind !== 'placeholder'
+          ? {
+              structId:
+                structs.find(
+                  (s) =>
+                    (s.delivery === 'queue' || s.delivery === 'mailbox') ===
+                    (kind === 'send' || kind === 'receive'),
+                )?.id ?? '',
+              localName:
+                structs.find(
+                  (s) =>
+                    (s.delivery === 'queue' || s.delivery === 'mailbox') ===
+                    (kind === 'send' || kind === 'receive'),
+                )?.symbol ?? 'message',
+              ...(kind === 'send' || kind === 'receive'
+                ? { timeoutMs: 0, onFailure: 'return' as const }
+                : {}),
+            }
+          : {}),
     };
     updateTask((t) => t[phase].push(s));
     setStepSelection({ phase, id });
@@ -394,11 +478,45 @@ export function useEditor() {
   function connect(c: Connection) {
     const source = project?.nodes.find((n) => n.id === c.source),
       target = project?.nodes.find((n) => n.id === c.target);
-    if (!source || !target || source.kind === target.kind) return;
+    if (!source || !target) return;
+    if (source.kind === 'task' && target.kind === 'task') {
+      if (target.trigger !== 'notification') {
+        notify('Choose Task notification as the target loop trigger first');
+        return;
+      }
+      const existing = c.sourceHandle?.startsWith('step:')
+        ? c.sourceHandle.slice(5)
+        : null;
+      updateNode(source.id, (n) => {
+        if (n.kind !== 'task') return;
+        const step = [...n.setup, ...n.loop].find(
+          (s) => s.id === existing && s.kind === 'notify',
+        );
+        if (step) step.taskId = target.id;
+        else
+          n.loop.push({
+            id: uid(),
+            kind: 'notify',
+            name: `Notify ${target.name}`,
+            note: '',
+            taskId: target.id,
+          });
+      });
+      notify('Task notification connected');
+      return;
+    }
+    if (source.kind === target.kind) return;
     const t = source.kind === 'task' ? source : (target as Task),
       s = source.kind === 'struct' ? source : (target as SharedStruct),
-      kind = source.kind === 'task' ? 'write' : 'read',
-      handle = kind === 'write' ? c.sourceHandle : c.targetHandle;
+      kind =
+        source.kind === 'task'
+          ? s.delivery === 'queue' || s.delivery === 'mailbox'
+            ? 'send'
+            : 'write'
+          : s.delivery === 'queue' || s.delivery === 'mailbox'
+            ? 'receive'
+            : 'read',
+      handle = source.kind === 'task' ? c.sourceHandle : c.targetHandle;
     const existing = handle?.startsWith('step:') ? handle.slice(5) : null;
     if (existing) {
       updateNode(t.id, (n) => {
@@ -406,6 +524,8 @@ export function useEditor() {
           for (const phase of ['setup', 'loop'] as Phase[]) {
             const step = n[phase].find((st) => st.id === existing);
             if (step) {
+              step.kind = kind;
+              delete step.taskId;
               step.structId = s.id;
               step.localName = s.symbol;
             }
@@ -425,23 +545,40 @@ export function useEditor() {
     const step: Step = {
       id: uid(),
       kind,
-      name: `${kind === 'write' ? 'Publish' : 'Read'} ${s.name.toLowerCase()}`,
+      name: `${kind === 'write' ? 'Publish' : kind === 'send' ? 'Send' : kind === 'receive' ? 'Receive' : 'Read'} ${s.name.toLowerCase()}`,
       note: '',
       structId: s.id,
       localName: s.symbol,
+      ...(kind === 'send' || kind === 'receive'
+        ? { timeoutMs: 0, onFailure: 'return' as const }
+        : {}),
     };
     updateNode(t.id, (n) => {
       if (n.kind === 'task') {
-        if (kind === 'read') n.loop.unshift(step);
+        if (kind === 'read' || kind === 'receive') n.loop.unshift(step);
         else n.loop.push(step);
       }
     });
     setSelectedId(t.id);
     notify(
-      `${kind === 'write' ? 'Publish' : 'Read'} step added to ${t.name}.loop()`,
+      `${kind === 'write' ? 'Publish' : kind === 'send' ? 'Send' : kind === 'receive' ? 'Receive' : 'Read'} step added to ${t.name}.loop()`,
     );
   }
   function removeConnection(stepId: string) {
+    if (stepId.startsWith('trigger:')) {
+      const [, taskId, queueId] = stepId.split(':');
+      updateNode(taskId, (n) => {
+        if (n.kind !== 'task') return;
+        if (n.trigger === 'queues')
+          n.queueIds = n.queueIds?.filter((id) => id !== queueId);
+        else {
+          n.trigger = 'periodic';
+          delete n.queueId;
+        }
+      });
+      notify('Queue trigger removed');
+      return;
+    }
     change((p) => {
       for (const t of p.nodes)
         if (t.kind === 'task')
@@ -458,15 +595,52 @@ export function useEditor() {
         position: n.position,
         measured: nodeDimensions[n.id],
         selected: n.id === selectedId,
-        data: { node: n, showSteps, edit: editNode, step: editStep },
+        data: {
+          node: n,
+          showSteps,
+          types: project.types ?? [],
+          edit: editNode,
+          step: editStep,
+        },
       })) ?? [],
     [project, selectedId, showSteps, nodeDimensions],
   );
   const graphEdges: Edge[] = useMemo(() => {
     const edges: Edge[] = [];
     for (const t of tasks)
+      for (const id of t.trigger === 'queues'
+        ? (t.queueIds ?? [])
+        : t.trigger === 'queue' && t.queueId
+          ? [t.queueId]
+          : [])
+        if (structs.some((s) => s.id === id))
+          edges.push({
+            id: `trigger:${t.id}:${id}`,
+            source: id,
+            target: t.id,
+            sourceHandle: 'read',
+            targetHandle: 'read-new',
+            type: 'smoothstep',
+            label: 'wake + receive',
+            style: { stroke: '#698062', strokeDasharray: '5 3' },
+          });
+    for (const t of tasks)
       for (const phase of ['setup', 'loop'] as Phase[])
         for (const s of t[phase]) {
+          if (s.kind === 'notify') {
+            if (tasks.some((n) => n.id === s.taskId))
+              edges.push({
+                id: s.id,
+                source: t.id,
+                target: s.taskId!,
+                sourceHandle: showSteps ? `step:${s.id}` : 'write-new',
+                targetHandle: 'read-new',
+                type: 'smoothstep',
+                label: 'notify',
+                style: { stroke: '#a8815d' },
+              });
+            continue;
+          }
           if (
             s.kind === 'placeholder' ||
             !structs.some((n) => n.id === s.structId)
@@ -474,16 +648,18 @@ export function useEditor() {
             continue;
           edges.push({
             id: s.id,
-            source: s.kind === 'write' ? t.id : s.structId!,
-            target: s.kind === 'write' ? s.structId! : t.id,
+            source:
+              s.kind === 'write' || s.kind === 'send' ? t.id : s.structId!,
+            target:
+              s.kind === 'write' || s.kind === 'send' ? s.structId! : t.id,
             sourceHandle:
-              s.kind === 'write'
+              s.kind === 'write' || s.kind === 'send'
                 ? showSteps
                   ? `step:${s.id}`
                   : 'write-new'
                 : 'read',
             targetHandle:
-              s.kind === 'read'
+              s.kind === 'read' || s.kind === 'receive'
                 ? showSteps
                   ? `step:${s.id}`
                   : 'read-new'
@@ -533,7 +709,6 @@ export function useEditor() {
     const result = await run(() => window.espresso.export(project));
     if (result) {
       setExportPath(result.path);
-      setExportCanVersion(result.msmCanVersion ?? '');
       notify(`Exported ${result.fileCount} files to ${result.path}`);
     }
   }
@@ -575,6 +750,18 @@ export function useEditor() {
       : Object.keys(preview?.files ?? {})[0];
 
   return {
+    templates,
+    templateFolder,
+    templateErrors,
+    refreshTemplates,
+    templatePicker,
+    setTemplatePicker,
+    templateDraft,
+    setTemplateDraft,
+    saveTemplate,
+    deleteTemplate,
+    addTemplateTask,
+    newTemplate,
     project,
     view,
     setView,
@@ -594,7 +781,6 @@ export function useEditor() {
     savedPath,
     busy,
     exportPath,
-    exportCanVersion,
     undo,
     setUndo,
     redo,
@@ -622,7 +808,6 @@ export function useEditor() {
     editNode,
     editStep,
     addNode,
-    addCanTask,
     removeNode,
     addStep,
     changeStep,

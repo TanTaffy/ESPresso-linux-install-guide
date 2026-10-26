@@ -87,6 +87,11 @@ Sections sections(const std::string &source, const std::string &filename)
     require(current.empty(), filename + ": missing section end for " + current);
     return out;
 }
+std::string source_structure(const std::string &source, const std::string &name)
+{
+    return sections(source, name).structure;
+}
+
 bool contains_code(const std::string &text)
 {
     std::istringstream lines(text);
@@ -159,6 +164,11 @@ json project_manifest(const json &p, const Files &files)
         if (name == "espresso.layout.json" || name == "README.md" ||
             name == "espresso-recovered-code.txt")
             continue;
+        if (p.value("extraFiles", json::object()).contains(name))
+        {
+            managed[name] = {{"preserved", true}};
+            continue;
+        }
         const auto parsed = sections(text, name);
         managed[name] = {{"structure", parsed.structure}, {"sections", json::array()}};
         for (const auto &[key, body] : parsed.bodies)
@@ -166,7 +176,7 @@ json project_manifest(const json &p, const Files &files)
     }
     return {{"format", "espresso-project"},
             {"version", 1},
-            {"generatorVersion", "0.2.0"},
+            {"generatorVersion", "0.7.0"},
             {"layout", p},
             {"files", managed}};
 }
@@ -175,7 +185,7 @@ json import_project(const fs::path &manifest)
     auto doc = json::parse(read_file(manifest));
     require(doc.is_object() && doc.value("format", "") == "espresso-project" &&
                 doc.value("version", 0) == 1,
-            "Select an espresso.project.json exported by ESPresso 0.2 or newer.");
+            "Select an espresso.project.json exported by this version of ESPresso.");
     auto p = doc.at("layout");
     check_shape(p);
     require(doc.contains("files") && doc["files"].is_object() && doc["files"].size() <= 1000,
@@ -183,64 +193,123 @@ json import_project(const fs::path &manifest)
     const auto root = fs::canonical(manifest.parent_path());
     auto code = p.value("code", json::object());
     const auto expected_files = generate(p);
+    auto pristine = p;
+    pristine.erase("buildFiles");
+    pristine.erase("sourceOverrides");
+    const auto build_baseline = generate(pristine).at("main/CMakeLists.txt");
     Files defaults;
     for (const auto &[name, text] : expected_files)
         for (const auto &[key, body] : sections(text, name).bodies)
             defaults[key] = body;
     std::set<std::string> keys;
+    const auto config_name = "main/" + config_path(p);
+    std::string config_content;
+    json extras = json::object(), builds = json::object(),
+         overrides = p.value("sourceOverrides", json::object());
     size_t total = 0;
+    auto read_inside = [&](const std::string &name)
+    {
+        require(preserved_path(name), "Unsafe project file path: " + name);
+        const auto file = root / fs::u8path(name);
+        require(fs::is_regular_file(file) && !fs::is_symlink(file),
+                "Missing or symbolic project file: " + name);
+        const auto relative = fs::relative(fs::canonical(file), root).generic_u8string();
+        require(preserved_path(relative), "Project file resolves outside the project: " + name);
+        auto bytes = read_file(file);
+        total += bytes.size();
+        require(total <= 12 * 1024 * 1024,
+                "Imported project exceeds 12 MB. No source files have been dropped.");
+        return bytes;
+    };
     for (const auto &[name, descriptor] : doc["files"].items())
     {
-        require(safe_relative(name), "Unsafe project file path: " + name);
-        const auto path = root / fs::u8path(name);
-        require(fs::is_regular_file(path), "Missing project file: " + name);
-        const auto relative = fs::relative(fs::canonical(path), root).generic_string();
-        require(safe_relative(relative), "Project file resolves outside the project: " + name);
-        const auto text = read_file(path);
-        total += text.size();
-        require(total <= 12 * 1024 * 1024, "Imported project exceeds the 12 MB source limit.");
+        require(preserved_path(name), "Unsafe project file path: " + name);
+        const bool snapshot =
+            descriptor.value("preserved", false) || name.rfind("components/", 0) == 0;
+        if (snapshot && !fs::exists(root / fs::u8path(name)))
+            continue;
+        const auto text = read_inside(name);
+        if (name == config_name)
+        {
+            config_content = text;
+            continue;
+        }
+        if (name == "espresso.libraries.lock.json")
+        {
+            p["libraryLocks"] = json::parse(text);
+            continue;
+        }
+        if (name == "CMakeLists.txt" || name == "main/CMakeLists.txt")
+        {
+            if (name == "main/CMakeLists.txt")
+                merge_build(text, expected_files.at(name));
+            builds[name] = text;
+            continue;
+        }
+        if (snapshot)
+        {
+            require(!expected_files.count(name) || name.rfind("components/", 0) == 0 ||
+                        name == "README.md" || name == ".gitignore" || name == "sdkconfig.defaults",
+                    "Preserved inventory conflicts with generated output: " + name);
+            extras[name] = base64_encode(text);
+            continue;
+        }
         const auto parsed = sections(text, name);
-        require(parsed.structure == descriptor.at("structure").get<std::string>(),
-                name + ": generated structure changed outside editable sections. Restore that "
-                       "structure before importing.");
-        std::set<std::string> expected = descriptor.at("sections").get<std::set<std::string>>();
+        const auto old_structure = descriptor.at("structure").get<std::string>();
+        if (parsed.structure != old_structure)
+        {
+            const auto extension = fs::path(name).extension().string();
+            require(name.rfind("main/", 0) == 0 &&
+                        (extension == ".cpp" || extension == ".hpp" || extension == ".h"),
+                    name + ": generated structure changed outside editable sections.");
+            overrides[name] = {{"content", text},
+                               {"structure", overrides.contains(name) ? overrides[name]["structure"]
+                                                                      : json(old_structure)}};
+        }
+        else if (overrides.contains(name))
+            overrides[name]["content"] = text;
+        const auto expected = descriptor.at("sections").get<std::set<std::string>>();
         require(expected.size() == parsed.bodies.size(), name + ": missing editable section.");
         for (const auto &[key, body] : parsed.bodies)
         {
             require(expected.count(key) && keys.insert(key).second,
                     name + ": unexpected or duplicate section " + key);
-            // Unedited TODOs stay generated, so changing a note in the GUI still updates them.
-            // Explicit edits (including deleting a TODO) remain implementation snapshots.
             if (code.contains(key) || !defaults.count(key) || defaults.at(key) != body)
                 code[key] = body;
         }
     }
-    // Check that a manifest has not omitted required generated files or changed its layout.
     for (const auto &[name, text] : expected_files)
     {
         if (name == "espresso.layout.json" || name == "README.md" ||
             name == "espresso-recovered-code.txt" || name.rfind("components/", 0) == 0)
             continue;
         require(doc["files"].contains(name), "Project manifest is missing " + name);
+        if (name == config_name || name == "CMakeLists.txt" || name == "main/CMakeLists.txt")
+            continue;
         require(sections(text, name).structure == doc["files"][name]["structure"],
                 "Project layout and generated structure disagree: " + name);
     }
     for (fs::recursive_directory_iterator it(root), end; it != end; ++it)
     {
-        const auto name = fs::relative(it->path(), root).generic_string();
+        const auto name = fs::relative(it->path(), root).generic_u8string();
+        require(!it->is_symlink(), "Project contains a symbolic link: " + name +
+                                       ". Use regular files before importing.");
         if (it->is_directory())
         {
             if (it->path().filename() == "build" || it->path().filename() == ".git")
                 it.disable_recursion_pending();
             continue;
         }
-        if (doc["files"].contains(name) || name == manifest.filename().generic_string() ||
-            name == "espresso.layout.json" || name == "README.md" ||
-            name == "espresso-recovered-code.txt" || name == "sdkconfig" || name == "sdkconfig.old")
+        if (doc["files"].contains(name) || name == manifest.filename().generic_u8string() ||
+            name == "espresso.layout.json" || name == "espresso-recovered-code.txt")
             continue;
-        throw std::runtime_error("Unmanaged file: " + name +
-                                 ". Import supports projects with no extra source files.");
+        extras[name] = base64_encode(read_inside(name));
     }
+    p["extraFiles"] = extras;
+    p["buildFiles"] = builds;
+    p["buildBases"] = {{"main/CMakeLists.txt", build_baseline}};
+    p["sourceOverrides"] = overrides;
+    import_config(p, config_content);
     p["code"] = code;
     normalize_project(p);
     check_shape(p);

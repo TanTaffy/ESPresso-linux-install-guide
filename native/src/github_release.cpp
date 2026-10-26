@@ -131,23 +131,18 @@ Download fetch_library(const json &library)
     local["files"] = json::object();
     json paths = json::object();
     size_t total = 0;
-    const bool can = library.value("id", "") == "msm-can";
     for (const auto &item : tree.at("tree"))
     {
         if (item.at("type") != "blob")
             continue;
-        const std::string path = item.at("path"),
-                          base = espresso::fs::path(path).filename().string();
+        const std::string path = item.at("path");
         if (std::regex_search(path, std::regex("(^|/)(examples|tests|test|build|docs|.github)/")))
             continue;
         const bool root_doc = path == "README.md" || path == "LICENSE" || path == "LICENSE.md" ||
                               path == "LICENSE.txt" || path == "LICENSE.MIT";
-        if (!root_doc &&
-            !std::regex_match(path, std::regex(".*\\.(h|hh|hpp|hxx|tpp|inl|c|cc|cpp|cxx|S)")))
+        if (!root_doc && !espresso::library_file(path))
             continue;
-        if (can && !root_doc && base != "MSM_CAN.hpp" && base != "MSM_CAN.cpp")
-            continue;
-        const std::string destination = can ? base : path;
+        const std::string destination = path;
         if (!espresso::safe_relative(destination) || local["files"].contains(destination))
             throw std::runtime_error("Unsafe or ambiguous library source path.");
         auto source = get(L"raw.githubusercontent.com",
@@ -158,8 +153,6 @@ Download fetch_library(const json &library)
         local["files"][destination] = source;
         paths[destination] = path;
     }
-    if (can && (!paths.contains("MSM_CAN.hpp") || !paths.contains("MSM_CAN.cpp")))
-        throw std::runtime_error("MSM_CAN release is missing its source files.");
     Download result;
     result.files = espresso::library_preview(local);
     result.lock = {{"repository", "https://github.com/" + repository},

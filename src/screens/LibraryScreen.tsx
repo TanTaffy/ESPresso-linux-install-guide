@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { FolderOpen, Plus, Trash2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { FolderOpen, Plus, Trash2, RefreshCw } from 'lucide-react';
 import { FieldLabel } from '../components/FieldLabel';
 import type { EditorController } from '../editor/useEditor';
 import { uid, type Library } from '../model';
@@ -10,6 +10,20 @@ type Props = Pick<
 >;
 export function LibraryScreen({ project, change, run, busy, notify }: Props) {
   const [draft, setDraft] = useState<Library | null>(null);
+  const [defaults, setDefaults] = useState<Library[]>([]),
+    [catalogPath, setCatalogPath] = useState(''),
+    [catalogErrors, setCatalogErrors] = useState<string[]>([]);
+  async function refresh() {
+    const catalog = await run(() => window.espresso.librariesCatalog());
+    if (catalog) {
+      setDefaults(catalog.items);
+      setCatalogPath(catalog.path);
+      setCatalogErrors(catalog.errors);
+    }
+  }
+  useEffect(() => {
+    void refresh();
+  }, []);
   if (!project) return null;
   const libraries = project.libraries ?? [];
   return (
@@ -23,6 +37,22 @@ export function LibraryScreen({ project, change, run, busy, notify }: Props) {
           </p>
         </div>
         <div className="actions">
+          <button
+            className="button"
+            disabled={busy}
+            onClick={() => void run(() => window.espresso.revealLibraries())}
+          >
+            <FolderOpen size={15} />
+            Open libraries folder
+          </button>
+          <button
+            className="button"
+            disabled={busy}
+            onClick={() => void refresh()}
+          >
+            <RefreshCw size={15} />
+            Refresh libraries
+          </button>
           <button
             className="button"
             disabled={busy}
@@ -55,6 +85,17 @@ export function LibraryScreen({ project, change, run, busy, notify }: Props) {
           </button>
         </div>
       </div>
+      <div className="catalog-note">
+        <code>{catalogPath}</code>
+        <span>
+          Library definitions in this folder are available in new layouts.
+        </span>
+        {catalogErrors.map((error) => (
+          <p className="catalog-error" key={error}>
+            {error}
+          </p>
+        ))}
+      </div>
       <div className="library-layout">
         <section className="library-list">
           {!libraries.length && (
@@ -74,17 +115,20 @@ export function LibraryScreen({ project, change, run, busy, notify }: Props) {
               </button>
               <p>
                 Used by{' '}
-                {project.nodes
-                  .filter(
-                    (n) =>
-                      n.kind === 'task' &&
-                      ((n.libraryIds ?? []).includes(lib.id) ||
-                        (lib.id === 'msm-can' && n.preset === 'msm_can')),
-                  )
-                  .map((n) => n.name)
-                  .join(', ') || 'no tasks'}
+                {[
+                  ...project.nodes
+                    .filter(
+                      (n) =>
+                        n.kind === 'task' &&
+                        (n.libraryIds ?? []).includes(lib.id),
+                    )
+                    .map((n) => n.name),
+                  ...(project.types ?? [])
+                    .filter((t) => t.libraryIds.includes(lib.id))
+                    .map((t) => `${t.name} type`),
+                ].join(', ') || 'no tasks or types'}
               </p>
-              {lib.id !== 'msm-can' && (
+              {
                 <button
                   className="button danger"
                   aria-label={`Remove library ${lib.name}`}
@@ -93,6 +137,10 @@ export function LibraryScreen({ project, change, run, busy, notify }: Props) {
                       p.libraries = (p.libraries ?? []).filter(
                         (l) => l.id !== lib.id,
                       );
+                      for (const type of p.types ?? [])
+                        type.libraryIds = type.libraryIds.filter(
+                          (id) => id !== lib.id,
+                        );
                       for (const n of p.nodes)
                         if (n.kind === 'task')
                           n.libraryIds = (n.libraryIds ?? []).filter(
@@ -106,7 +154,32 @@ export function LibraryScreen({ project, change, run, busy, notify }: Props) {
                   <Trash2 size={14} />
                   Remove
                 </button>
-              )}
+              }
+            </div>
+          ))}
+          <h3 className="spaced">From your libraries folder</h3>
+          {defaults.map((lib) => (
+            <div className="connection-row" key={lib.id}>
+              <span>{lib.name}</span>
+              <button
+                className="button"
+                disabled={busy || libraries.some((l) => l.id === lib.id)}
+                onClick={() =>
+                  void run(async () => {
+                    await window.espresso.checkLibrary({
+                      ...project,
+                      libraries: [...libraries, lib],
+                    });
+                    change((p) => {
+                      (p.libraries ??= []).push(structuredClone(lib));
+                    });
+                  })
+                }
+              >
+                {libraries.some((l) => l.id === lib.id)
+                  ? 'In this layout'
+                  : 'Add to layout'}
+              </button>
             </div>
           ))}
         </section>
@@ -116,7 +189,7 @@ export function LibraryScreen({ project, change, run, busy, notify }: Props) {
               key={draft.id}
               library={draft}
               busy={busy}
-              save={async (library) => {
+              save={async (library, saveDefault) => {
                 const result = await run(() =>
                   window.espresso.checkLibrary({
                     ...project,
@@ -127,6 +200,14 @@ export function LibraryScreen({ project, change, run, busy, notify }: Props) {
                   }),
                 );
                 if (!result) return;
+                if (saveDefault) {
+                  const catalog = await run(() =>
+                    window.espresso.saveLibraryDefault(library),
+                  );
+                  if (!catalog) return;
+                  setDefaults(catalog.items);
+                  setCatalogErrors(catalog.errors);
+                }
                 change((p) => {
                   p.libraries = [
                     ...(p.libraries ?? []).filter((l) => l.id !== library.id),
@@ -158,7 +239,7 @@ function LibraryForm({
 }: {
   library: Library;
   busy: boolean;
-  save: (lib: Library) => Promise<void>;
+  save: (lib: Library, saveDefault: boolean) => Promise<void>;
   cancel: () => void;
 }) {
   const [name, setName] = useState(library.name),
@@ -166,7 +247,7 @@ function LibraryForm({
     [version, setVersion] = useState(library.version),
     [headers, setHeaders] = useState(library.headers.join(', ')),
     [dependencies, setDependencies] = useState(library.dependencies.join(', '));
-  const locked = library.id === 'msm-can';
+  const [saveDefault, setSaveDefault] = useState(false);
   const list = (value: string) =>
     value
       .split(',')
@@ -176,23 +257,25 @@ function LibraryForm({
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        void save({
-          ...library,
-          name: name.trim(),
-          repository: repository.trim(),
-          version: version.trim(),
-          headers: list(headers),
-          dependencies: list(dependencies),
-        });
+        void save(
+          {
+            ...library,
+            name: name.trim(),
+            repository: repository.trim(),
+            version: version.trim(),
+            headers: list(headers),
+            dependencies: list(dependencies),
+          },
+          saveDefault,
+        );
       }}
     >
-      <h2>{locked ? 'MSM_CAN preset library' : 'Library settings'}</h2>
+      <h2>Library settings</h2>
       <FieldLabel label="Component name">
         <input
           aria-label="Library name"
           required
           value={name}
-          disabled={locked}
           onChange={(e) => setName(e.target.value)}
         />
       </FieldLabel>
@@ -204,7 +287,6 @@ function LibraryForm({
               placeholder="owner/repository"
               required
               value={repository}
-              disabled={locked}
               onChange={(e) => setRepository(e.target.value)}
             />
           </FieldLabel>
@@ -214,7 +296,6 @@ function LibraryForm({
               placeholder="latest or v1.0.0"
               required
               value={version}
-              disabled={locked}
               onChange={(e) => setVersion(e.target.value)}
             />
           </FieldLabel>
@@ -227,9 +308,8 @@ function LibraryForm({
       <FieldLabel label="Task include headers (comma separated)">
         <input
           aria-label="Library headers"
-          placeholder="MSM_LiveData.hpp"
+          placeholder="Sensor.hpp"
           value={headers}
-          disabled={locked}
           onChange={(e) => setHeaders(e.target.value)}
         />
       </FieldLabel>
@@ -238,7 +318,6 @@ function LibraryForm({
           aria-label="Library dependencies"
           placeholder="freertos, esp_timer"
           value={dependencies}
-          disabled={locked}
           onChange={(e) => setDependencies(e.target.value)}
         />
       </FieldLabel>
@@ -247,12 +326,21 @@ function LibraryForm({
         libraries. Custom build scripts and binary libraries are outside this
         manager.
       </p>
+      <label className="library-assignment">
+        <input
+          type="checkbox"
+          aria-label="Save library as default"
+          checked={saveDefault}
+          onChange={(e) => setSaveDefault(e.target.checked)}
+        />
+        Save to libraries folder for future layouts
+      </label>
       <div className="actions">
-        {!locked && (
+        {
           <button className="button primary" disabled={busy} type="submit">
             Save library
           </button>
-        )}
+        }
         <button className="button" type="button" onClick={cancel}>
           Close
         </button>

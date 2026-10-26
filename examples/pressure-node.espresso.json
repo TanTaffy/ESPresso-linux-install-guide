@@ -1,4 +1,20 @@
 {
+  "libraries": [
+    {
+      "dependencies": [
+        "esp_driver_gpio",
+        "esp_driver_twai",
+        "esp_timer",
+        "freertos"
+      ],
+      "headers": ["MSM_CAN.hpp"],
+      "id": "msm-can",
+      "name": "MSM_CAN",
+      "repository": "ManchesterStingerMotorsports/MSM_CAN",
+      "source": "github",
+      "version": "latest"
+    }
+  ],
   "name": "pressure-node",
   "nodes": [
     {
@@ -10,13 +26,13 @@
           "id": "adc-read",
           "kind": "placeholder",
           "name": "Read pressure channel",
-          "note": "Read the ADC count into pressure.raw_count."
+          "note": "Read parameters::PRESSURE_CHANNEL into pressure.raw_count."
         },
         {
           "id": "adc-convert",
           "kind": "placeholder",
           "name": "Convert counts to pressure",
-          "note": "Apply sensor calibration. Set pressure.pressure_bar and pressure.valid."
+          "note": "Use parameters::REFERENCE_VOLTAGE and your sensor calibration. Set pressure.pressure_bar and pressure.valid."
         },
         {
           "id": "adc-publish",
@@ -39,17 +55,87 @@
           "id": "adc-spi",
           "kind": "placeholder",
           "name": "Initialise SPI",
-          "note": "Configure the SPI bus and GPIO pins."
+          "note": "Configure SPI2_HOST with parameters::MOSI_GPIO, parameters::SCLK_GPIO and parameters::MISO_GPIO."
         },
         {
           "id": "adc-config",
           "kind": "placeholder",
           "name": "Configure ADC",
-          "note": "Initialise ADC A and select the pressure channel."
+          "note": "Initialise ADC A with parameters::CS_A_GPIO and parameters::SPI_CLOCK_HZ; select parameters::PRESSURE_CHANNEL."
         }
       ],
       "stackBytes": 4096,
-      "symbol": "adc"
+      "symbol": "adc",
+      "periodExpression": "1'000 / Config::adc::SAMPLE_RATE_HZ",
+      "parameters": [
+        {
+          "name": "MOSI_GPIO",
+          "label": "ADC MOSI pin",
+          "description": "",
+          "value": "GPIO_NUM_11",
+          "type": "gpio_num_t"
+        },
+        {
+          "name": "SCLK_GPIO",
+          "label": "ADC clock pin",
+          "description": "",
+          "value": "GPIO_NUM_12",
+          "type": "gpio_num_t"
+        },
+        {
+          "name": "MISO_GPIO",
+          "label": "ADC MISO pin",
+          "description": "",
+          "value": "GPIO_NUM_13",
+          "type": "gpio_num_t"
+        },
+        {
+          "name": "CS_A_GPIO",
+          "label": "ADC A chip-select pin",
+          "description": "",
+          "value": "GPIO_NUM_10",
+          "type": "gpio_num_t"
+        },
+        {
+          "name": "SPI_CLOCK_HZ",
+          "label": "SPI clock (Hz)",
+          "description": "",
+          "value": "4'000'000",
+          "type": "uint32_t"
+        },
+        {
+          "name": "SAMPLE_RATE_HZ",
+          "type": "uint32_t",
+          "value": "10",
+          "label": "Sample rate (Hz)",
+          "description": "Controls the ADC loop period."
+        },
+        {
+          "name": "PRESSURE_CHANNEL",
+          "label": "Pressure channel",
+          "description": "",
+          "value": "0",
+          "type": "uint8_t"
+        },
+        {
+          "name": "REFERENCE_VOLTAGE",
+          "label": "ADC reference voltage",
+          "description": "",
+          "value": "5.0f",
+          "type": "float"
+        }
+      ],
+      "configNamespace": "Config::adc",
+      "configKeys": [
+        "MOSI_GPIO",
+        "SCLK_GPIO",
+        "MISO_GPIO",
+        "CS_A_GPIO",
+        "SPI_CLOCK_HZ",
+        "SAMPLE_RATE_HZ",
+        "PRESSURE_CHANNEL",
+        "REFERENCE_VOLTAGE"
+      ]
     },
     {
       "fields": [
@@ -102,7 +188,6 @@
           "note": "Choose can_frame.id and pack the pressure snapshot into can_frame.data using MSM_CAN::pack_* helpers."
         },
         {
-          "action": "msm_can_send",
           "id": "can-send",
           "kind": "placeholder",
           "name": "Transmit frame",
@@ -115,21 +200,50 @@
         "x": 740,
         "y": 60
       },
-      "preset": "msm_can",
       "priority": 3,
       "setup": [
         {
-          "action": "msm_can_init",
           "id": "can-init",
           "kind": "placeholder",
           "name": "Initialise CAN",
-          "note": "Choose the CAN RX/TX GPIOs and enable the MSM_CAN initialisation call below."
+          "note": "CAN pins come from the task parameters in config/Config.hpp. Enable the initialisation call after checking your wiring."
         }
       ],
       "stackBytes": 4096,
-      "symbol": "can"
+      "symbol": "can",
+      "libraryIds": ["msm-can"],
+      "icon": "data:image/png;base64,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",
+      "description": "CAN setup and transmit placeholders using MSM_CAN. Configure pins, IDs and payloads in your editor.",
+      "parameters": [
+        {
+          "name": "RX_GPIO",
+          "label": "CAN RX pin",
+          "description": "",
+          "value": "GPIO_NUM_2",
+          "type": "gpio_num_t"
+        },
+        {
+          "name": "TX_GPIO",
+          "label": "CAN TX pin",
+          "description": "",
+          "value": "GPIO_NUM_1",
+          "type": "gpio_num_t"
+        }
+      ],
+      "configNamespace": "Config::can",
+      "configKeys": ["RX_GPIO", "TX_GPIO"]
     }
   ],
   "target": "esp32s3",
-  "version": 1
+  "version": 1,
+  "code": {
+    "includes-7461736b2d63616e": "#include \"esp_err.h\"\n",
+    "loopvars-7461736b2d63616e": "    [[maybe_unused]] MSM_CAN::TxFrame can_frame{};\n",
+    "step-63616e2d696e6974": "    // TODO: Check the config CAN pins and initialise the shared controller once.\n    // ESP_ERROR_CHECK(MSM_CAN::init(parameters::RX_GPIO, parameters::TX_GPIO));\n",
+    "step-63616e2d73656e64": "    // TODO: Enable this call after configuring CAN and packing the payload.\n    // ESP_ERROR_CHECK(MSM_CAN::send_msg(can_frame));\n"
+  },
+  "configFile": {
+    "path": "config/Config.hpp",
+    "content": "#pragma once\n\n#include <cstdint>\n#include \"driver/gpio.h\"\n\n// Pressure example: ADC A and CAN pin assignments derived from Johnson node.\n// Confirm these assignments against your board before enabling hardware calls.\nnamespace Config\n{\n    namespace adc\n    {\n        inline constexpr gpio_num_t MOSI_GPIO = GPIO_NUM_11;\n        inline constexpr gpio_num_t SCLK_GPIO = GPIO_NUM_12;\n        inline constexpr gpio_num_t MISO_GPIO = GPIO_NUM_13;\n        inline constexpr gpio_num_t CS_A_GPIO = GPIO_NUM_10;\n        inline constexpr uint32_t SPI_CLOCK_HZ = 4'000'000;\n        inline constexpr uint32_t SAMPLE_RATE_HZ = 10;\n        inline constexpr uint8_t PRESSURE_CHANNEL = 0;\n        inline constexpr float REFERENCE_VOLTAGE = 5.0f;\n    }\n\n    namespace can\n    {\n        inline constexpr gpio_num_t RX_GPIO = GPIO_NUM_2;\n        inline constexpr gpio_num_t TX_GPIO = GPIO_NUM_1;\n    }\n}\n"
+  }
 }

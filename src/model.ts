@@ -1,12 +1,17 @@
 export type Position = { x: number; y: number };
 export type Step = {
   id: string;
-  kind: 'placeholder' | 'read' | 'write';
+  kind: 'placeholder' | 'read' | 'write' | 'send' | 'receive' | 'notify';
   name: string;
   note: string;
   structId?: string;
   localName?: string;
-  action?: 'msm_can_init' | 'msm_can_send';
+  taskId?: string;
+  timeoutMs?: number;
+  timeoutExpression?: string;
+  timeoutLiteral?: string;
+  timeoutSetting?: string;
+  onFailure?: 'continue' | 'return' | 'assert';
 };
 export type Task = {
   id: string;
@@ -18,7 +23,19 @@ export type Task = {
   priority: number;
   stackBytes: number;
   core: 'any' | '0' | '1';
-  preset?: 'msm_can';
+  trigger?: 'periodic' | 'queue' | 'queues' | 'notification';
+  queueId?: string;
+  queueIds?: string[];
+  periodExpression?: string;
+  priorityExpression?: string;
+  stackExpression?: string;
+  coreExpression?: string;
+  configValues?: Record<string, string>;
+  parameters?: TaskParameter[];
+  configNamespace?: string;
+  configKeys?: string[];
+  description?: string;
+  icon?: string;
   libraryIds?: string[];
   setup: Step[];
   loop: Step[];
@@ -28,7 +45,26 @@ export type Field = {
   name: string;
   type: string;
   initialValue: string;
+  arrayLength?: number;
 };
+export type DataType = {
+  id: string;
+  name: string;
+  kind: 'struct' | 'enum' | 'external';
+  fields: Field[];
+  values: { id: string; name: string; value: string }[];
+  cppType: string;
+  headers: string[];
+  libraryIds: string[];
+};
+export type TaskParameter = {
+  type?: string;
+  name: string;
+  label: string;
+  description: string;
+  value: string;
+};
+export type ConfigFile = { path: string; content: string };
 export type SharedStruct = {
   id: string;
   kind: 'struct';
@@ -37,6 +73,13 @@ export type SharedStruct = {
   typeName: string;
   position: Position;
   fields: Field[];
+  delivery?: 'snapshot' | 'queue' | 'mailbox';
+  capacity?: number;
+  capacityExpression?: string;
+  capacityLiteral?: string;
+  configNamespace?: string;
+  configKeys?: string[];
+  payloadTypeId?: string;
 };
 export type LayoutNode = Task | SharedStruct;
 export type Project = {
@@ -46,6 +89,13 @@ export type Project = {
   nodes: LayoutNode[];
   libraries?: Library[];
   code?: Record<string, string>;
+  types?: DataType[];
+  configFile?: ConfigFile;
+  extraFiles?: Record<string, string>;
+  buildFiles?: Record<string, string>;
+  buildBases?: Record<string, string>;
+  sourceOverrides?: Record<string, { content: string; structure: string }>;
+  libraryLocks?: Record<string, unknown>;
 };
 export type Library = {
   id: string;
@@ -57,6 +107,16 @@ export type Library = {
   dependencies: string[];
   files?: Record<string, string>;
 };
+export type TaskTemplate = {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  task: Task;
+  libraries: Library[];
+  code: Record<string, string>;
+};
+export type Catalog<T> = { items: T[]; errors: string[]; path: string };
 export type Diagnostic = {
   severity: 'error' | 'warning';
   message: string;
@@ -66,6 +126,7 @@ export type Preview = {
   valid: boolean;
   diagnostics: Diagnostic[];
   files: Record<string, string>;
+  configContent?: string;
   stepStates?: Record<string, string>;
   stepCode?: Record<string, string>;
 };
@@ -78,7 +139,6 @@ export type SaveResult = { path: string } | null;
 export type ExportResult = {
   path: string;
   fileCount: number;
-  msmCanVersion?: string;
 } | null;
 export type Phase = 'setup' | 'loop';
 export interface DesktopApi {
@@ -93,12 +153,21 @@ export interface DesktopApi {
   export(project: Project): Promise<ExportResult>;
   example(): Promise<Project>;
   empty(): Promise<Project>;
-  canPreset(
-    project: Project,
-    position: Position,
-  ): Promise<{ task: Task; libraries: Library[] }>;
   newDocument(project: Project): Promise<void>;
   revealExport(): Promise<void>;
+  templates(): Promise<Catalog<TaskTemplate>>;
+  saveTemplate(template: TaskTemplate): Promise<Catalog<TaskTemplate>>;
+  deleteTemplate(id: string): Promise<Catalog<TaskTemplate>>;
+  revealTemplates(): Promise<void>;
+  librariesCatalog(): Promise<Catalog<Library>>;
+  saveLibraryDefault(library: Library): Promise<Catalog<Library>>;
+  revealLibraries(): Promise<void>;
+  importConfig(project: Project): Promise<Project | null>;
+  instantiateTemplate(
+    project: Project,
+    template: TaskTemplate,
+    position: Position,
+  ): Promise<Project>;
 }
 declare global {
   interface Window {

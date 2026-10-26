@@ -20,6 +20,41 @@ bool has_string(const json &j, const char *key, size_t maximum)
            j[key].get_ref<const std::string &>().size() <= maximum &&
            j[key].get_ref<const std::string &>().find('\0') == std::string::npos;
 }
+bool valid_icon(const json &value)
+{
+    if (!value.is_string())
+        return false;
+    const auto text = value.get<std::string>();
+    if (text.find('\0') != std::string::npos)
+        return false;
+    if (text.rfind("data:", 0) != 0)
+        return text.size() <= 64;
+    const auto comma = text.find(',');
+    if (comma == std::string::npos)
+        return false;
+    const auto header = text.substr(0, comma);
+    if (header != "data:image/png;base64" && header != "data:image/jpeg;base64" &&
+        header != "data:image/webp;base64")
+        return false;
+    const auto size = text.size() - comma - 1;
+    if (!size || size % 4 || size > 180 * 1024)
+        return false;
+    size_t padding = 0;
+    for (size_t i = comma + 1; i < text.size(); ++i)
+    {
+        const char c = text[i];
+        if (c == '=')
+        {
+            ++padding;
+            if (padding > 2 || i < text.size() - 2)
+                return false;
+        }
+        else if (padding || !((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                              (c >= '0' && c <= '9') || c == '+' || c == '/'))
+            return false;
+    }
+    return size / 4 * 3 - padding <= 128 * 1024;
+}
 void check_shape(const json &p)
 {
     require(p.is_object() && p.value("version", 0) == 1,
@@ -68,12 +103,22 @@ void check_shape(const json &p)
         const auto kind = n["kind"].get<std::string>();
         if (kind == "task")
         {
-            require(!n.contains("preset") || (has_string(n, "preset") && n["preset"] == "msm_can"),
-                    "Unknown task preset.");
+            require(!n.contains("preset"),
+                    "Task presets were replaced by ordinary templates. Create a new layout.");
             for (const auto *key : {"periodMs", "priority", "stackBytes"})
                 require(n.contains(key) && n[key].is_number_integer(),
                         std::string("Missing task setting: ") + key);
             require(has_string(n, "core"), "Missing core affinity.");
+            require(!n.contains("trigger") ||
+                        (has_string(n, "trigger") &&
+                         (n["trigger"] == "periodic" || n["trigger"] == "queue" ||
+                          n["trigger"] == "notification" || n["trigger"] == "queues")),
+                    "Unknown task trigger.");
+            require(!n.contains("queueId") || has_string(n, "queueId"), "Invalid trigger queue.");
+            require(!n.contains("description") || has_string(n, "description", 8000),
+                    "Invalid task description.");
+            require(!n.contains("icon") || valid_icon(n["icon"]),
+                    "Use an emoji/symbol or a PNG, JPEG or WebP icon up to 128 KB.");
             for (const auto *phase : {"setup", "loop"})
             {
                 require(n.contains(phase) && n[phase].is_array() && n[phase].size() <= 250,
@@ -84,28 +129,37 @@ void check_shape(const json &p)
                     require(has_string(s, "name") && has_string(s, "kind") &&
                                 has_string(s, "note", 8000),
                             "Invalid step.");
+                    require(!s.contains("action"), "Special step actions were replaced by template "
+                                                   "code. Create a new layout.");
                     const auto type = s["kind"].get<std::string>();
-                    require(type == "placeholder" || type == "read" || type == "write",
+                    require(type == "placeholder" || type == "read" || type == "write" ||
+                                type == "send" || type == "receive" || type == "notify",
                             "Unknown step type.");
-                    if (s.contains("action"))
-                    {
-                        require(has_string(s, "action") && n.value("preset", "") == "msm_can" &&
-                                    type == "placeholder",
-                                "CAN actions must belong to CAN preset placeholders.");
-                        const std::string action = s["action"];
-                        require((action == "msm_can_init" && std::string(phase) == "setup") ||
-                                    (action == "msm_can_send" && std::string(phase) == "loop"),
-                                "Invalid CAN preset action or phase.");
-                    }
-                    if (type != "placeholder")
+                    if (type == "notify")
+                        require(has_string(s, "taskId"), "A notification needs a target task.");
+                    else if (type != "placeholder")
                         require(has_string(s, "structId") && has_string(s, "localName"),
                                 "A shared-data step needs a struct and local snapshot name.");
+                    require(!s.contains("timeoutMs") || s["timeoutMs"].is_number_integer(),
+                            "Queue timeout must be an integer.");
+                    require(!s.contains("onFailure") ||
+                                (has_string(s, "onFailure") &&
+                                 (s["onFailure"] == "continue" || s["onFailure"] == "return" ||
+                                  s["onFailure"] == "assert")),
+                            "Unknown queue failure behaviour.");
                 }
             }
         }
         else if (kind == "struct")
         {
             require(has_string(n, "typeName"), "Struct type name is required.");
+            require(!n.contains("delivery") ||
+                        (has_string(n, "delivery") &&
+                         (n["delivery"] == "snapshot" || n["delivery"] == "queue" ||
+                          n["delivery"] == "mailbox")),
+                    "Unknown data delivery mode.");
+            require(!n.contains("capacity") || n["capacity"].is_number_integer(),
+                    "Queue capacity must be an integer.");
             require(n.contains("fields") && n["fields"].is_array() && n["fields"].size() <= 100,
                     "A struct supports up to 100 fields.");
             for (const auto &f : n["fields"])
@@ -119,6 +173,7 @@ void check_shape(const json &p)
         else
             throw std::runtime_error("Unknown node type.");
     }
+    check_extensions(p);
 }
 std::string lower(std::string s)
 {
@@ -280,10 +335,11 @@ bool initial_value(const std::string &type, const std::string &value)
 json validate(const json &p)
 {
     check_shape(p);
-    json out = json::array();
-    auto issue =
-        [&](const std::string &severity, const std::string &message, const std::string &node = "")
-    { out.push_back({{"severity", severity}, {"message", message}, {"nodeId", node}}); };
+    json out = validate_types(p);
+    auto issue = [&](const std::string &severity, const std::string &message,
+                     const std::string &node = "") {
+        out.push_back({{"severity", severity}, {"message", message}, {"nodeId", node}});
+    };
     if (!std::regex_match(p["name"].get<std::string>(), std::regex("[A-Za-z][A-Za-z0-9_-]{0,63}")))
         issue("error", "Project name must start with a letter and use letters, digits, hyphens or "
                        "underscores.");
@@ -292,7 +348,7 @@ json validate(const json &p)
         issue("error", "Select a supported ESP32 target.");
     std::map<std::string, json> structs;
     std::set<std::string> task_symbols, struct_symbols, type_names;
-    size_t tasks = 0, can_tasks = 0;
+    size_t tasks = 0;
     for (const auto &n : p["nodes"])
     {
         const std::string nid = n["id"], sym = n["symbol"];
@@ -308,6 +364,10 @@ json validate(const json &p)
         if (n["kind"] == "struct")
         {
             structs[nid] = n;
+            if (n.value("delivery", "snapshot") == "queue" &&
+                n.value("capacityExpression", "").empty() &&
+                (n.value("capacity", int64_t(8)) < 1 || n.value("capacity", int64_t(8)) > 4096))
+                issue("error", "Queue capacity must be between 1 and 4,096 messages.", nid);
             if (!struct_symbols.insert(lower(sym)).second)
                 issue("error", "Shared instance symbols must be unique: " + sym, nid);
             const std::string tn = n["typeName"];
@@ -315,41 +375,29 @@ json validate(const json &p)
                 issue("error", "Invalid C++ struct type name: " + tn, nid);
             if (!type_names.insert(tn).second)
                 issue("error", "Struct type names must be unique: " + tn, nid);
-            std::set<std::string> fields;
-            for (const auto &f : n["fields"])
-            {
-                const std::string name = f["name"];
-                if (!identifier(name) || name == tn)
-                    issue("error", "Invalid field name: " + name, nid);
-                if (!fields.insert(name).second)
-                    issue("error", "Duplicate struct field: " + name, nid);
-                if (!initial_value(f["type"], f["initialValue"]))
-                    issue("error", "Invalid type or initial value for field " + name + ".", nid);
-            }
-            if (n["fields"].empty())
+            if (n["fields"].empty() && n.value("payloadTypeId", "").empty())
                 issue("warning", "Struct " + tn + " has no fields.", nid);
         }
         else
         {
             ++tasks;
-            if (n.value("preset", "") == "msm_can")
-                ++can_tasks;
             if (!task_symbols.insert(lower(sym)).second)
                 issue("error", "Task symbols must be unique: " + sym, nid);
             const auto period = n["periodMs"].get<int64_t>(),
                        priority = n["priority"].get<int64_t>(),
                        stack = n["stackBytes"].get<int64_t>();
-            if (period < 1 || period > 3600000)
+            if (n.value("periodExpression", "").empty() && (period < 1 || period > 3600000))
                 issue("error", "Task period must be between 1 and 3,600,000 ms.", nid);
-            if (priority < 1 || priority > 24)
+            if (n.value("priorityExpression", "").empty() && (priority < 1 || priority > 24))
                 issue("error", "Task priority must be between 1 and 24.", nid);
-            if (stack < 1024 || stack > 1048576 || stack % 4)
+            if (n.value("stackExpression", "").empty() &&
+                (stack < 1024 || stack > 1048576 || stack % 4))
                 issue("error",
                       "Stack size must be a multiple of 4 between 1,024 and 1,048,576 bytes.", nid);
             const std::string core = n["core"];
             if (core != "any" && core != "0" && core != "1")
                 issue("error", "Invalid core affinity.", nid);
-            if (target == "esp32c3" && core == "1")
+            if (n.value("coreExpression", "").empty() && target == "esp32c3" && core == "1")
                 issue("error", "ESP32-C3 has one core. Select Core 0 or Any core.", nid);
             if (n["loop"].empty())
                 issue("warning", "Task " + n["name"].get<std::string>() + " has an empty loop.",
@@ -358,21 +406,46 @@ json validate(const json &p)
     }
     if (!tasks)
         issue("error", "Add at least one task before exporting.");
-    if (can_tasks > 1)
-        issue("warning",
-              "MSM_CAN uses one shared controller. Initialise it from only one CAN task.");
     std::map<std::string, std::set<std::string>> writers, readers;
     for (const auto &n : p["nodes"])
         if (n["kind"] == "task")
         {
+            const std::string nid = n["id"];
+            const auto inputs = trigger_ids(n);
+            if (n.value("trigger", "periodic") == "queues" && inputs.empty())
+                issue("error", "Select at least one input queue or mailbox.", nid);
+            std::set<std::string> selected;
+            for (const auto &input : inputs)
+            {
+                const std::string qid = input;
+                if (!selected.insert(qid).second)
+                    issue("error", "Select each input only once.", nid);
+                if (!structs.count(qid) || !queue_node(structs.at(qid)))
+                    issue("error", "Choose an existing queue or mailbox to trigger this task.",
+                          nid);
+                else
+                    readers[qid].insert(nid);
+            }
             for (const auto *phase : {"setup", "loop"})
             {
                 std::map<std::string, std::string> locals;
                 for (const auto &step : n[phase])
                     if (step["kind"] != "placeholder")
                     {
-                        const std::string sid = step["structId"], local = step["localName"],
-                                          nid = n["id"];
+                        if (step["kind"] == "notify")
+                        {
+                            const auto target_task = std::find_if(
+                                p["nodes"].begin(), p["nodes"].end(),
+                                [&](const json &t)
+                                { return t["id"] == step["taskId"] && t["kind"] == "task"; });
+                            if (target_task == p["nodes"].end() ||
+                                target_task->value("trigger", "periodic") != "notification")
+                                issue("error",
+                                      "Notification target must be a notification-triggered task.",
+                                      nid);
+                            continue;
+                        }
+                        const std::string sid = step["structId"], local = step["localName"];
                         if (!structs.count(sid))
                             issue("error",
                                   "Step " + step["name"].get<std::string>() +
@@ -380,10 +453,34 @@ json validate(const json &p)
                                   nid);
                         if (!identifier(local))
                             issue("error", "Invalid local snapshot name: " + local, nid);
-                        if (n.value("preset", "") == "msm_can" && local == "can_frame")
+                        if (std::string(phase) == "loop" && !trigger_ids(n).empty() &&
+                            local == "event")
                             issue("error",
-                                  "The CAN preset reserves can_frame for its transmit frame. "
-                                  "Choose another snapshot name.",
+                                  "Queue-triggered loops reserve event for the received message.",
+                                  nid);
+                        const bool queue_step = step["kind"] == "send" || step["kind"] == "receive";
+                        if (step["kind"] == "receive" && std::string(phase) == "loop" &&
+                            n.value("trigger", "periodic") == "queue" &&
+                            n.value("queueId", "") == sid)
+                            issue("warning",
+                                  "This loop already receives its trigger message as event. This "
+                                  "receive consumes another message.",
+                                  nid);
+                        if (structs.count(sid) && queue_step != queue_node(structs.at(sid)))
+                            issue("error",
+                                  "Use send/receive steps for queues and read/publish steps for "
+                                  "snapshots.",
+                                  nid);
+                        if (queue_step && step.value("timeoutExpression", "").empty() &&
+                            (step.value("timeoutMs", int64_t(0)) < -1 ||
+                             step.value("timeoutMs", int64_t(0)) > 3600000))
+                            issue("error", "Queue timeout must be -1 (forever) or 0–3,600,000 ms.",
+                                  nid);
+                        if (queue_step && std::string(phase) == "setup" &&
+                            step.value("onFailure", "return") == "return")
+                            issue("warning",
+                                  "A failed queue operation skips remaining setup steps; the task "
+                                  "still enters its loop.",
                                   nid);
                         if (locals.count(local) && locals[local] != sid)
                             issue("error",
@@ -391,12 +488,30 @@ json validate(const json &p)
                                       phase + "().",
                                   nid);
                         locals[local] = sid;
-                        (step["kind"] == "write" ? writers : readers)[sid].insert(nid);
+                        (step["kind"] == "write" || step["kind"] == "send" ? writers : readers)[sid]
+                            .insert(nid);
                     }
             }
         }
     for (const auto &[id, n] : structs)
     {
+        if (queue_node(n))
+        {
+            if (readers[id].size() > 1)
+                issue("warning",
+                      n["name"].get<std::string>() +
+                          " has competing consumers. Each message is received by only one task.",
+                      id);
+            if (writers[id].empty())
+                issue("warning",
+                      n["name"].get<std::string>() +
+                          " has no sender; consumers wait until code sends a message.",
+                      id);
+            if (readers[id].empty())
+                issue("warning",
+                      n["name"].get<std::string>() + " has no consumer; its queue may fill.", id);
+            continue;
+        }
         if (writers[id].size() > 1)
             issue("warning",
                   n["name"].get<std::string>() +

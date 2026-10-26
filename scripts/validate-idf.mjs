@@ -13,7 +13,10 @@ const request = (value) => {
   if (!r.ok) throw Error(r.error);
   return r.result;
 };
-const project = request({ op: 'example' }).project;
+const project = request({
+  op: 'load',
+  path: path.resolve('examples/pressure-node.espresso.json'),
+}).project;
 const folder = path.resolve('build/idf-validation');
 fs.mkdirSync(folder, { recursive: true });
 const destination = path.join(folder, project.name);

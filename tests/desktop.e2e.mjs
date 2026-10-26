@@ -27,6 +27,7 @@ const app = await electron.launch({
 });
 const page = await app.firstWindow(),
   errors = [];
+page.setDefaultTimeout(20000);
 page.on('pageerror', (e) => errors.push(e.message));
 const screenshotDir = path.join(root, 'test-results');
 fs.mkdirSync(screenshotDir, { recursive: true });
@@ -44,10 +45,14 @@ try {
   );
   await page.screenshot({ path: path.join(screenshotDir, 'new-layout.png') });
   await page
-    .getByRole('button', { name: 'CAN task MSM_CAN preset', exact: true })
+    .getByRole('button', {
+      name: 'Task from template Choose a task type',
+      exact: true,
+    })
     .click();
+  await page.getByRole('button', { name: 'Add CAN task', exact: true }).click();
   await expect(page.locator('.task-node')).toHaveCount(1);
-  await expect(page.locator('.task-node .bee-mark')).toHaveCount(1);
+  await expect(page.locator('.task-node img.task-custom-icon')).toHaveCount(1);
   await page.getByRole('button', { name: 'Edit CAN', exact: true }).click();
   await expect(
     page.getByRole('button', {
@@ -92,6 +97,40 @@ try {
     })
     .toBe(true);
   await page.screenshot({ path: path.join(screenshotDir, 'canvas.png') });
+  await page.getByRole('button', { name: 'Edit CAN', exact: true }).click();
+  await page.getByRole('button', { name: 'Add setting', exact: true }).click();
+  await page
+    .getByRole('textbox', { name: 'Parameter name 2', exact: true })
+    .fill('testval');
+  await page
+    .getByRole('textbox', { name: 'Parameter value testval', exact: true })
+    .fill('3');
+  await page
+    .locator('.tabs')
+    .getByRole('button', { name: 'Config File', exact: true })
+    .click();
+  await expect(
+    page.getByLabel('Config file preview', { exact: true }),
+  ).toContainText('namespace Config');
+  await expect
+    .poll(async () =>
+      /TX_GPIO = GPIO_NUM_1;\n        inline constexpr int testval = 3;\n        inline constexpr unsigned PERIOD_MS/.test(
+        await page
+          .getByLabel('Config file preview', { exact: true })
+          .textContent(),
+      ),
+    )
+    .toBe(true);
+  await expect(
+    page.getByRole('heading', { name: 'config/Config.hpp', exact: true }),
+  ).toBeVisible();
+  await page.screenshot({
+    path: path.join(screenshotDir, 'pressure-board-config.png'),
+  });
+  await page
+    .locator('.tabs')
+    .getByRole('button', { name: 'Canvas', exact: true })
+    .click();
   const adc = page.getByTestId('node-task-adc');
   const before = await adc.boundingBox();
   await page.mouse.move(before.x + 120, before.y + 50);
@@ -110,6 +149,18 @@ try {
   await page
     .getByRole('textbox', { name: 'Step name', exact: true })
     .fill('Calibrate pressure');
+  await expect(
+    page.getByRole('textbox', { name: 'Period expression', exact: true }),
+  ).toHaveValue("1'000 / Config::adc::SAMPLE_RATE_HZ");
+  await expect(
+    page.getByRole('textbox', {
+      name: 'Parameter value MOSI_GPIO',
+      exact: true,
+    }),
+  ).toHaveValue('GPIO_NUM_11');
+  await page
+    .getByRole('textbox', { name: 'Period expression', exact: true })
+    .fill('');
   await page
     .getByRole('spinbutton', { name: 'Loop period', exact: true })
     .fill('50');
@@ -173,12 +224,19 @@ try {
   assert.ok(saved.nodes[0].position.y > 60);
   if (!liveCan) {
     // Exercise real native folder export without making the ordinary UI suite
-    // depend on GitHub availability. The preset UI/preview is tested above.
+    // depend on GitHub availability. The template UI/preview is tested above.
     const fixture = structuredClone(saved);
     for (const node of fixture.nodes)
       if (node.kind === 'task') {
-        delete node.preset;
-        for (const step of [...node.setup, ...node.loop]) delete step.action;
+        node.libraryIds = [];
+        if (node.symbol === 'can') {
+          delete fixture.code[
+            `includes-${Buffer.from(node.id).toString('hex')}`
+          ];
+          delete fixture.code[
+            `loopvars-${Buffer.from(node.id).toString('hex')}`
+          ];
+        }
       }
     const fixturePath = path.join(data, 'offline-export.espresso.json');
     fs.writeFileSync(fixturePath, JSON.stringify(fixture));
@@ -211,11 +269,11 @@ try {
   if (liveCan) {
     const canLock = JSON.parse(
       fs.readFileSync(
-        path.join(data, 'pressure-node', 'msm_can.lock.json'),
+        path.join(data, 'pressure-node', 'espresso.libraries.lock.json'),
         'utf8',
       ),
     );
-    assert.match(canLock.commit, /^[a-f0-9]{40}$/);
+    assert.match(canLock['msm-can'].commit, /^[a-f0-9]{40}$/);
     assert.ok(
       fs.existsSync(
         path.join(
@@ -223,7 +281,7 @@ try {
           'pressure-node',
           'components',
           'MSM_CAN',
-          'MSM_CAN.cpp',
+          'main/MSM_CAN.cpp',
         ),
       ),
     );

@@ -13,7 +13,7 @@ struct Download
     json lock;
 };
 
-// Resolves and downloads a stable GitHub release for each CAN export.
+// Resolves and downloads a stable GitHub release for each assigned GitHub library.
 // Throws before the export directory is created if resolution/download fails.
 
 Download fetch_library(const json &library);

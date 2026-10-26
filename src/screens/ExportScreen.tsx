@@ -22,8 +22,6 @@ type Props = Pick<
   | 'setError'
   | 'busy'
   | 'exportPath'
-  | 'exportCanVersion'
-  | 'tasks'
   | 'notify'
   | 'run'
   | 'change'
@@ -43,8 +41,6 @@ export function ExportScreen({
   setError,
   busy,
   exportPath,
-  exportCanVersion,
-  tasks,
   notify,
   run,
   change,
@@ -134,11 +130,6 @@ export function ExportScreen({
           <Check size={17} />
           <span>
             Exported to <strong>{exportPath}</strong>
-            {exportCanVersion && (
-              <small className="release-label">
-                MSM_CAN {exportCanVersion}
-              </small>
-            )}
           </span>
           <button
             className="button"
@@ -189,12 +180,6 @@ export function ExportScreen({
         </main>
       </div>
       <div className="export-note">
-        {tasks.some((t) => t.preset === 'msm_can') && (
-          <span>
-            MSM_CAN’s latest published release is downloaded on each
-            export.{' '}
-          </span>
-        )}
         Exports create a new folder and include the layout. Existing folders are
         never overwritten. Fill in TODO sections using your usual editor.
       </div>

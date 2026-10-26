@@ -6,12 +6,8 @@ namespace espresso
 json handle(const json &request)
 {
     const std::string op = request.at("op");
-    if (op == "example")
-    {
-        auto p = example();
-        normalize_project(p);
-        return {{"project", p}};
-    }
+    if (op.rfind("catalog-", 0) == 0)
+        return handle_catalog(request);
     if (op == "new")
         return {{"project",
                  {{"version", 1},
@@ -36,21 +32,21 @@ json handle(const json &request)
     auto project = request.at("project");
     normalize_project(project);
     check_shape(project);
+    if (op == "instantiate-template")
+        return {{"project",
+                 instantiate_template(project, request.at("template"), request.at("position"))}};
+    if (op == "import-config")
+    {
+        import_config(project, read_file(input_path(request)));
+        check_shape(project);
+        return {{"project", project}};
+    }
     if (op == "check-library")
     {
         for (const auto &lib : project["libraries"])
             if (lib["source"] == "local")
                 library_preview(lib);
         return {{"valid", true}};
-    }
-    if (op == "can-preset")
-    {
-        auto task = can_preset(project, request.at("position"));
-        auto libs = project["libraries"];
-        if (std::none_of(libs.begin(), libs.end(),
-                         [](const json &l) { return l["id"] == "msm-can"; }))
-            libs.push_back(builtin_can_library());
-        return {{"task", task}, {"libraries", libs}};
     }
     if (op == "save")
     {
@@ -59,12 +55,47 @@ json handle(const json &request)
         return {{"path", path.u8string()}};
     }
     auto diagnostics = validate(project);
-    const bool valid = !has_errors(diagnostics);
+    bool valid = !has_errors(diagnostics);
     if (op == "validate")
         return {{"diagnostics", diagnostics}, {"valid", valid}};
     if (op == "preview")
     {
-        const auto files = valid ? json(generate(project)) : json::object();
+        json files = json::object();
+        if (valid)
+            try
+            {
+                auto generated = generate(project);
+                restore_preserved(project, generated);
+                for (const auto &[name, bytes] : generated)
+                {
+                    try
+                    {
+                        json value = bytes;
+                        value.dump();
+                        files[name] = value;
+                    }
+                    catch (...)
+                    {
+                        files[name] =
+                            "[Binary file preserved: " + std::to_string(bytes.size()) + " bytes]";
+                    }
+                }
+            }
+            catch (const std::exception &e)
+            {
+                valid = false;
+                diagnostics.push_back(
+                    {{"severity", "error"}, {"message", e.what()}, {"nodeId", ""}});
+            }
+        std::string config_content;
+        try
+        {
+            config_content = render_config(project);
+        }
+        catch (...)
+        {
+            config_content = project.value("configFile", json::object()).value("content", "");
+        }
         if (files.contains("espresso-recovered-code.txt"))
             diagnostics.push_back({{"severity", "warning"},
                                    {"message", "Removed sections contain code. Export retains it "
@@ -81,11 +112,9 @@ json handle(const json &request)
                         if (code.contains(key))
                             step_code[step["id"].get<std::string>()] = code[key];
                     }
-        return {{"diagnostics", diagnostics},
-                {"valid", valid},
-                {"stepStates", code_states(project)},
-                {"stepCode", step_code},
-                {"files", files}};
+        return {{"diagnostics", diagnostics},      {"valid", valid},
+                {"configContent", config_content}, {"stepStates", code_states(project)},
+                {"stepCode", step_code},           {"files", files}};
     }
     if (op == "export")
     {
@@ -97,9 +126,8 @@ json handle(const json &request)
         require(!fs::exists(destination),
                 "The export folder already exists. Choose another parent or change the project "
                 "name; existing files will not be overwritten.");
-        const auto locks = export_libraries(project, files);
-        std::string can_version =
-            locks.contains("msm-can") ? locks["msm-can"].value("release", "") : "";
+        export_libraries(project, files);
+        restore_preserved(project, files);
         files["espresso.project.json"] = project_manifest(project, files).dump(2) + "\n";
         require(
             files["espresso.project.json"].size() <= 8 * 1024 * 1024,
@@ -126,7 +154,6 @@ json handle(const json &request)
         }
         return {{"path", destination.u8string()},
                 {"fileCount", files.size()},
-                {"msmCanVersion", can_version},
                 {"diagnostics", diagnostics}};
     }
     throw std::runtime_error("Unknown native operation.");

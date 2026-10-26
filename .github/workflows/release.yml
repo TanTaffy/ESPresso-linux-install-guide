@@ -1,0 +1,92 @@
+name: Windows release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package-and-publish:
+    runs-on: windows-2022
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Check release version
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ($env:GITHUB_REF_NAME -ne "v$version") {
+            throw "Tag $env:GITHUB_REF_NAME does not match package version $version."
+          }
+      - run: npm ci
+      - run: npm run format:check
+      - run: npm test
+      - name: Build Windows portable package
+        run: npm run package
+      - name: Test packaged application
+        shell: pwsh
+        run: |
+          $env:ESPRESSO_E2E_BINARY = Join-Path $env:GITHUB_WORKSPACE 'release/win-unpacked/ESPresso.exe'
+          npm run test:e2e
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Generate SHA-256 checksum
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $file = "ESPresso-$version-Windows.exe"
+          $digest = (Get-FileHash -LiteralPath "release/$file" -Algorithm SHA256).Hash.ToLowerInvariant()
+          Set-Content -LiteralPath "release/$file.sha256" -Value "$digest  $file" -Encoding ascii
+      - name: Store Windows package
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: ESPresso-${{ github.ref_name }}-Windows
+          path: |
+            release/ESPresso-*-Windows.exe
+            release/ESPresso-*-Windows.exe.sha256
+          if-no-files-found: error
+      - name: Store screenshots on failure
+        if: failure()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: release-test-screenshots
+          path: test-results/
+          if-no-files-found: ignore
+      - name: Publish release with package and checksum
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $package = "release/ESPresso-$version-Windows.exe"
+          $notes = "releases/$tag.md"
+          $existing = gh release view $tag --json isDraft 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            if (-not ($existing | ConvertFrom-Json).isDraft) {
+              throw "Release $tag is already published; its assets will not be replaced."
+            }
+          } else {
+            if (Test-Path -LiteralPath $notes) {
+              gh release create $tag --verify-tag --draft --title "ESPresso $version" --notes-file $notes
+            } else {
+              gh release create $tag --verify-tag --draft --title "ESPresso $version" --generate-notes
+            }
+            if ($LASTEXITCODE -ne 0) { throw 'Could not create draft release.' }
+          }
+          gh release upload $tag $package "$package.sha256" --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Could not upload release assets.' }
+          gh release edit $tag --draft=false --latest
+          if ($LASTEXITCODE -ne 0) { throw 'Could not publish release.' }
+          "Published [$tag](https://github.com/$env:GITHUB_REPOSITORY/releases/tag/$tag)." >> $env:GITHUB_STEP_SUMMARY

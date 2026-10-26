@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { DesktopApi } from '../src/model';
 const api: DesktopApi = {
+  importConfig: (project) => ipcRenderer.invoke('import-config', project),
   boot: () => ipcRenderer.invoke('boot'),
   preview: (project) => ipcRenderer.invoke('preview', project),
   draft: (project, dirty) => ipcRenderer.invoke('draft', project, dirty),
@@ -12,9 +13,17 @@ const api: DesktopApi = {
   export: (project) => ipcRenderer.invoke('export', project),
   example: () => ipcRenderer.invoke('example'),
   empty: () => ipcRenderer.invoke('empty'),
-  canPreset: (project, position) =>
-    ipcRenderer.invoke('can-preset', project, position),
   newDocument: (project) => ipcRenderer.invoke('new-document', project),
   revealExport: () => ipcRenderer.invoke('reveal-export'),
+  templates: () => ipcRenderer.invoke('templates'),
+  saveTemplate: (template) => ipcRenderer.invoke('save-template', template),
+  deleteTemplate: (id) => ipcRenderer.invoke('delete-template', id),
+  revealTemplates: () => ipcRenderer.invoke('reveal-templates'),
+  librariesCatalog: () => ipcRenderer.invoke('libraries-catalog'),
+  saveLibraryDefault: (library) =>
+    ipcRenderer.invoke('save-library-default', library),
+  revealLibraries: () => ipcRenderer.invoke('reveal-libraries'),
+  instantiateTemplate: (project, template, position) =>
+    ipcRenderer.invoke('instantiate-template', project, template, position),
 };
 contextBridge.exposeInMainWorld('espresso', api);

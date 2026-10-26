@@ -24,9 +24,11 @@ import {
   Undo2,
   Workflow,
   X,
+  Layers,
+  Settings2,
+  ListPlus,
 } from 'lucide-react';
 import { nodeTypes } from './components/DiagramNode';
-import { MsmBee } from './components/MsmBee';
 import { TaskSettings } from './components/TaskSettings';
 import type { FlowNode } from './editor/types';
 import { useEditor } from './editor/useEditor';
@@ -34,6 +36,11 @@ import { ExportScreen } from './screens/ExportScreen';
 import { StructScreen } from './screens/StructScreen';
 import { TaskScreen } from './screens/TaskScreen';
 import { LibraryScreen } from './screens/LibraryScreen';
+import { TemplateScreen } from './screens/TemplateScreen';
+import { ConfigFileScreen } from './screens/ConfigFileScreen';
+import { DataTypeScreen } from './screens/DataTypeScreen';
+import { TaskIcon } from './components/TaskIcon';
+import { TemplatePicker } from './components/TemplatePicker';
 
 export default function App() {
   const editor = useEditor();
@@ -75,7 +82,6 @@ export default function App() {
     requestDocument,
     editNode,
     addNode,
-    addCanTask,
     removeNode,
     connect,
     removeConnection,
@@ -152,6 +158,9 @@ export default function App() {
             { id: 'task', name: 'Task steps', icon: ListOrdered },
             { id: 'struct', name: 'Shared structs', icon: Braces },
             { id: 'libraries', name: 'Libraries', icon: Library },
+            { id: 'templates', name: 'Task types', icon: Layers },
+            { id: 'types', name: 'Data types', icon: Braces },
+            { id: 'config', name: 'Config File', icon: Settings2 },
             { id: 'export', name: 'Export', icon: FileCode2 },
           ] as const
         ).map(({ id, name, icon: Icon }) => (
@@ -223,6 +232,34 @@ export default function App() {
                 <Plus size={14} />
               </button>
               <button
+                className="palette-button"
+                disabled={busy}
+                onClick={() => {
+                  editor.setTemplatePicker(true);
+                  void editor.refreshTemplates();
+                }}
+              >
+                <Layers size={18} />
+                <span>
+                  Task from template<small>Choose a task type</small>
+                </span>
+                <Plus size={14} />
+              </button>
+              <button
+                className="palette-button teal"
+                draggable
+                onDragStart={(e) =>
+                  e.dataTransfer.setData('application/espresso', 'queue')
+                }
+                onClick={() => addNode('queue')}
+              >
+                <ListPlus size={18} />
+                <span>
+                  Queue<small>Typed FIFO messages</small>
+                </span>
+                <Plus size={14} />
+              </button>
+              <button
                 className="palette-button teal"
                 draggable
                 onDragStart={(e) =>
@@ -233,21 +270,6 @@ export default function App() {
                 <Braces size={18} />
                 <span>
                   Shared struct<small>Drag onto canvas</small>
-                </span>
-                <Plus size={14} />
-              </button>
-              <button
-                className="palette-button"
-                draggable
-                disabled={busy}
-                onDragStart={(e) =>
-                  e.dataTransfer.setData('application/espresso', 'can')
-                }
-                onClick={() => void addCanTask()}
-              >
-                <MsmBee size={18} />
-                <span>
-                  CAN task<small>MSM_CAN preset</small>
                 </span>
                 <Plus size={14} />
               </button>
@@ -263,11 +285,7 @@ export default function App() {
                   onClick={() => setSelectedId(t.id)}
                   onDoubleClick={() => editNode(t.id)}
                 >
-                  {t.preset === 'msm_can' ? (
-                    <MsmBee size={13} />
-                  ) : (
-                    <Repeat2 size={14} />
-                  )}
+                  <TaskIcon icon={t.icon} size={14} />
                   {t.name || 'Unnamed task'}
                 </button>
               ))}
@@ -334,8 +352,12 @@ export default function App() {
               onDrop={(e) => {
                 e.preventDefault();
                 const kind = e.dataTransfer.getData('application/espresso');
-                if (kind === 'can') {
-                  void addCanTask(
+                const templateId = e.dataTransfer.getData(
+                  'application/espresso-template',
+                );
+                if (templateId) {
+                  void editor.addTemplateTask(
+                    templateId,
                     flow.current?.screenToFlowPosition({
                       x: e.clientX,
                       y: e.clientY,
@@ -343,7 +365,7 @@ export default function App() {
                   );
                   return;
                 }
-                if (kind === 'task' || kind === 'struct')
+                if (kind === 'task' || kind === 'struct' || kind === 'queue')
                   addNode(
                     kind,
                     flow.current?.screenToFlowPosition({
@@ -377,7 +399,14 @@ export default function App() {
                 isValidConnection={(c) => {
                   const a = project.nodes.find((n) => n.id === c.source),
                     b = project.nodes.find((n) => n.id === c.target);
-                  return !!a && !!b && a.kind !== b.kind;
+                  return (
+                    !!a &&
+                    !!b &&
+                    (a.kind !== b.kind ||
+                      (a.kind === 'task' &&
+                        b.kind === 'task' &&
+                        b.trigger === 'notification'))
+                  );
                 }}
                 onEdgeDoubleClick={(_, edge) => removeConnection(edge.id)}
                 onEdgesDelete={(edges) =>
@@ -424,7 +453,7 @@ export default function App() {
               </span>
               <span>
                 <i className="legend-dot teal" />
-                Shared data & mutex access
+                Snapshots & queued messages
               </span>
               <span>Drag ports to connect · Double-click a wire to remove</span>
             </div>
@@ -450,7 +479,12 @@ export default function App() {
             </div>
             {selected?.kind === 'task' ? (
               <>
-                <TaskSettings task={task} updateTask={updateTask} compact />
+                <TaskSettings
+                  task={task}
+                  updateTask={updateTask}
+                  structs={structs}
+                  compact
+                />
                 <button
                   className="button full"
                   onClick={() => editNode(selected.id)}
@@ -460,8 +494,9 @@ export default function App() {
                   <ArrowRight size={14} />
                 </button>
                 <div className="info-note">
-                  Drag a struct’s output to this task to add a read step. Drag
-                  this task’s output to a struct to add a publish step.
+                  Connect data to read a snapshot or receive a queued message.
+                  Connect tasks to send notifications to a
+                  notification-triggered task.
                 </div>
               </>
             ) : selected?.kind === 'struct' ? (
@@ -470,7 +505,14 @@ export default function App() {
                   <Braces size={24} />
                   <h2>{selected.typeName || 'Unnamed'}</h2>
                   <code>shared::{selected.symbol}</code>
-                  <p>{selected.fields.length} fields · mutex protected</p>
+                  <p>
+                    {selected.fields.length} fields ·{' '}
+                    {selected.delivery === 'mailbox'
+                      ? '1 value · overwrite unread'
+                      : selected.delivery === 'queue'
+                        ? `${selected.capacity ?? 8} messages`
+                        : 'mutex protected'}
+                  </p>
                 </div>
                 <button
                   className="button full"
@@ -480,8 +522,11 @@ export default function App() {
                   <ArrowRight size={14} />
                 </button>
                 <div className="info-note">
-                  A struct stores the latest complete snapshot. Each read or
-                  publish holds its mutex only while copying.
+                  {selected.delivery === 'mailbox'
+                    ? 'A mailbox stores the latest unread value. A send replaces an older value; a receive consumes it.'
+                    : selected.delivery === 'queue'
+                      ? 'A queue stores FIFO messages. Each receive removes one message.'
+                      : 'A struct stores the latest complete snapshot. Each read or publish holds its mutex only while copying.'}
                 </div>
               </>
             ) : (
@@ -522,12 +567,16 @@ export default function App() {
       {view === 'task' && <TaskScreen {...editor} />}
       {view === 'struct' && <StructScreen {...editor} />}
       {view === 'libraries' && <LibraryScreen {...editor} />}
+      {view === 'templates' && <TemplateScreen {...editor} />}
+      {view === 'config' && <ConfigFileScreen {...editor} />}
+      {view === 'types' && <DataTypeScreen {...editor} />}
       {view === 'export' && <ExportScreen {...editor} />}
       {message && (
         <div className="action-toast" role="status" aria-live="polite">
           {message}
         </div>
       )}
+      {editor.templatePicker && <TemplatePicker {...editor} />}
       {confirm && (
         <div className="modal-backdrop">
           <section

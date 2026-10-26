@@ -1,8 +1,15 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import type { Position, Project } from '../src/model';
+import type {
+  Position,
+  Project,
+  TaskTemplate,
+  Library,
+  Catalog,
+} from '../src/model';
 import { createNativeClient } from './native-client';
+import { openFolder } from './open-folder';
 
 let window: BrowserWindow;
 let currentPath: string | null = null;
@@ -21,6 +28,35 @@ const core = () =>
 const autosave = () =>
   path.join(app.getPath('userData'), 'recovery.espresso.json');
 const native = createNativeClient(core);
+const bundled = (name: string) =>
+  app.isPackaged
+    ? path.join(process.resourcesPath, name)
+    : path.resolve(__dirname, '..', name);
+const catalogPath = (kind: 'templates' | 'libraries') =>
+  path.join(
+    // Keep user-managed files outside AppData virtualization when the portable
+    // app is launched from a packaged desktop application.
+    process.env.ESPRESSO_TEST_DATA
+      ? app.getPath('userData')
+      : path.join(app.getPath('documents'), 'ESPresso'),
+    kind === 'templates' ? 'Task templates' : 'Libraries',
+  );
+let catalogsReady: Promise<unknown>;
+async function catalog<T>(
+  kind: 'templates' | 'libraries',
+  op = 'catalog-load',
+  extra: object = {},
+) {
+  await catalogsReady;
+  return native<Catalog<T>>({ op, kind, path: catalogPath(kind), ...extra });
+}
+async function newProject() {
+  const r = await native({ op: 'new' });
+  const libraries = await catalog<Library>('libraries');
+  r.project.libraries = libraries.items;
+  return { project: r.project, recoveryError: libraries.errors.join('\n') };
+}
+
 let draftChain: Promise<unknown> = Promise.resolve();
 let pendingDraft: Project | null = null;
 let draftRunning = false;
@@ -57,6 +93,18 @@ function register(name: string, fn: (...args: any[]) => unknown) {
   });
 }
 app.whenReady().then(() => {
+  catalogsReady = Promise.all(
+    (['templates', 'libraries'] as const).map((kind) =>
+      native({
+        op: 'catalog-seed',
+        path: catalogPath(kind),
+        source: path.join(
+          bundled('defaults'),
+          kind === 'templates' ? 'task-templates' : 'libraries',
+        ),
+      }),
+    ),
+  );
   window = new BrowserWindow({
     width: 1510,
     height: 980,
@@ -78,13 +126,63 @@ app.whenReady().then(() => {
   });
   window.removeMenu();
   register('boot', async () => {
-    const r = await native({ op: 'new' });
+    const r = await newProject();
     currentPath = null;
     latest = r.project;
     baseline = r.project;
-    return { project: r.project, restored: false };
+    return { ...r, restored: false };
+  });
+  register('import-config', async (project: Project) => {
+    const answer = await dialog.showOpenDialog(window, {
+      title: 'Import config file',
+      properties: ['openFile'],
+      filters: [{ name: 'C++ config file', extensions: ['h', 'hpp'] }],
+    });
+    if (answer.canceled || !answer.filePaths[0]) return null;
+    const imported = structuredClone(project);
+    imported.configFile = {
+      path: `config/${path.basename(answer.filePaths[0])}`,
+      content: '',
+    };
+    if (imported.extraFiles)
+      delete imported.extraFiles[`main/${imported.configFile.path}`];
+    return (
+      await native({
+        op: 'import-config',
+        project: imported,
+        path: answer.filePaths[0],
+      })
+    ).project;
   });
   register('preview', (project: Project) => native({ op: 'preview', project }));
+  register('templates', () => catalog<TaskTemplate>('templates'));
+  register('save-template', (entry: TaskTemplate) =>
+    catalog<TaskTemplate>('templates', 'catalog-save', { entry }),
+  );
+  register('delete-template', (id: string) =>
+    catalog<TaskTemplate>('templates', 'catalog-delete', { id }),
+  );
+  register('libraries-catalog', () => catalog<Library>('libraries'));
+  register('save-library-default', (entry: Library) =>
+    catalog<Library>('libraries', 'catalog-save', { entry }),
+  );
+  for (const kind of ['templates', 'libraries'] as const)
+    register(`reveal-${kind}`, async () => {
+      await catalogsReady;
+      await openFolder(catalogPath(kind));
+    });
+  register(
+    'instantiate-template',
+    async (project: Project, template: TaskTemplate, position: Position) => {
+      const r = await native({
+        op: 'instantiate-template',
+        project,
+        template,
+        position,
+      });
+      return r.project;
+    },
+  );
   register('check-library', async (project: Project) => {
     await native({ op: 'check-library', project });
     return true;
@@ -174,16 +272,15 @@ app.whenReady().then(() => {
     return result;
   });
   register('example', async () => {
-    const r = await native({ op: 'example' });
+    const r = await native({
+      op: 'load',
+      path: path.join(bundled('examples'), 'pressure-node.espresso.json'),
+    });
     return r.project;
   });
   register('empty', async () => {
-    const r = await native({ op: 'new' });
+    const r = await newProject();
     return r.project;
-  });
-  register('can-preset', async (project: Project, position: Position) => {
-    const r = await native({ op: 'can-preset', project, position });
-    return r;
   });
   register('new-document', (project: Project) => {
     currentPath = null;
@@ -193,8 +290,7 @@ app.whenReady().then(() => {
   });
   register('reveal-export', async () => {
     if (lastExport) {
-      const error = await shell.openPath(lastExport);
-      if (error) throw new Error(error);
+      await openFolder(lastExport);
     }
   });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));

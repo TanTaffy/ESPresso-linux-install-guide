@@ -10,19 +10,30 @@ import {
   ChevronRight,
   Download,
   LockKeyhole,
-  Repeat2,
   Upload,
 } from 'lucide-react';
 import { useEffect } from 'react';
 import type { FlowNode } from '../editor/types';
 import type { Phase } from '../model';
-import { MsmBee } from './MsmBee';
+import { TaskIcon } from './TaskIcon';
 export function DiagramNode({ id, data, selected }: NodeProps<FlowNode>) {
   const n = data.node,
     update = useUpdateNodeInternals();
   useEffect(() => {
     update(id);
-  }, [id, n, data.showSteps, update]);
+  }, [id, n, data.types, data.showSteps, update]);
+  const payload =
+    n.kind === 'struct'
+      ? data.types.find((t) => t.id === n.payloadTypeId)
+      : undefined;
+  const fields =
+    n.kind === 'struct'
+      ? payload
+        ? payload.kind === 'struct'
+          ? payload.fields
+          : []
+        : n.fields
+      : [];
   if (n.kind === 'struct')
     return (
       <article
@@ -34,19 +45,31 @@ export function DiagramNode({ id, data, selected }: NodeProps<FlowNode>) {
           position={Position.Left}
           id="write"
           className="data-handle"
-          title="Publish into this struct"
+          title={
+            n.delivery === 'queue' || n.delivery === 'mailbox'
+              ? 'Send into this queue'
+              : 'Publish into this struct'
+          }
         />
         <Handle
           type="source"
           position={Position.Right}
           id="read"
           className="data-handle"
-          title="Read from this struct"
+          title={
+            n.delivery === 'queue' || n.delivery === 'mailbox'
+              ? 'Receive from this queue'
+              : 'Read from this struct'
+          }
         />
         <header>
           <span className="node-type">
             <Braces size={15} />
-            Shared struct
+            {n.delivery === 'mailbox'
+              ? 'Latest-value mailbox'
+              : n.delivery === 'queue'
+                ? 'FIFO queue'
+                : 'Shared struct'}
           </span>
           <button
             className="icon-button nodrag"
@@ -59,20 +82,33 @@ export function DiagramNode({ id, data, selected }: NodeProps<FlowNode>) {
         <h3>{n.typeName || 'Unnamed struct'}</h3>
         <div className="node-symbol">shared::{n.symbol}</div>
         <div className="node-fields">
-          {n.fields.slice(0, 6).map((f) => (
+          {fields.slice(0, 6).map((f) => (
             <div key={f.id}>
               <span>{f.name || 'unnamed'}</span>
-              <code>{f.type}</code>
+              <code>
+                {f.type.startsWith('type:')
+                  ? (data.types.find((t) => t.id === f.type.slice(5))?.name ??
+                    'Missing type')
+                  : f.type}
+                {f.arrayLength ? `[${f.arrayLength}]` : ''}
+              </code>
             </div>
           ))}
-          {n.fields.length > 6 && (
-            <small>+ {n.fields.length - 6} more fields</small>
+          {fields.length > 6 && (
+            <small>+ {fields.length - 6} more fields</small>
           )}
-          {!n.fields.length && <small>No fields yet</small>}
+          {n.payloadTypeId && (
+            <small>{payload?.name ?? 'Missing payload type'}</small>
+          )}
+          {!n.payloadTypeId && !fields.length && <small>No fields yet</small>}
         </div>
         <footer>
           <LockKeyhole size={13} />
-          Mutex protected
+          {n.delivery === 'mailbox'
+            ? '1 value · overwrite unread'
+            : n.delivery === 'queue'
+              ? `${n.capacity ?? 8} messages · consume once`
+              : 'Mutex protected'}
         </footer>
       </article>
     );
@@ -86,19 +122,19 @@ export function DiagramNode({ id, data, selected }: NodeProps<FlowNode>) {
         position={Position.Left}
         id="read-new"
         style={{ top: 61 }}
-        title="Connect a struct to add a read step"
+        title="Connect shared data to read a snapshot or receive a queue message"
       />
       <Handle
         type="source"
         position={Position.Right}
         id="write-new"
         style={{ top: 61 }}
-        title="Connect to a struct to add a publish step"
+        title="Connect to shared data to publish or send; connect to a notification task to notify it"
       />
       <header>
         <span className="node-type">
-          {n.preset === 'msm_can' ? <MsmBee /> : <Repeat2 size={15} />}
-          {n.preset === 'msm_can' ? 'CAN task · MSM_CAN' : 'FreeRTOS task'}
+          <TaskIcon icon={n.icon} size={15} />
+          FreeRTOS task
         </span>
         <button
           className="icon-button nodrag"
@@ -110,7 +146,14 @@ export function DiagramNode({ id, data, selected }: NodeProps<FlowNode>) {
       </header>
       <h3>{n.name || 'Unnamed task'}</h3>
       <div className="node-symbol">
-        {n.periodMs} ms loop · priority {n.priority}
+        {n.trigger === 'queues'
+          ? 'On any selected input'
+          : n.trigger === 'queue'
+            ? 'On queue message'
+            : n.trigger === 'notification'
+              ? 'On notification'
+              : `${n.periodExpression || n.periodMs} ms loop`}{' '}
+        · priority {n.priorityExpression || n.priority}
       </div>
       {data.showSteps &&
         (['setup', 'loop'] as Phase[]).map((phase) => (
@@ -121,7 +164,7 @@ export function DiagramNode({ id, data, selected }: NodeProps<FlowNode>) {
             </div>
             {n[phase].map((s) => (
               <div className="node-step-wrap" key={s.id}>
-                {s.kind === 'read' && (
+                {(s.kind === 'read' || s.kind === 'receive') && (
                   <Handle
                     type="target"
                     position={Position.Left}
@@ -135,14 +178,16 @@ export function DiagramNode({ id, data, selected }: NodeProps<FlowNode>) {
                 >
                   {s.kind === 'placeholder' ? (
                     <code>{'{ }'}</code>
-                  ) : s.kind === 'read' ? (
+                  ) : s.kind === 'read' || s.kind === 'receive' ? (
                     <Download size={13} />
                   ) : (
                     <Upload size={13} />
                   )}
                   <span>{s.name || 'Unnamed step'}</span>
                 </button>
-                {s.kind === 'write' && (
+                {(s.kind === 'write' ||
+                  s.kind === 'send' ||
+                  s.kind === 'notify') && (
                   <Handle
                     type="source"
                     position={Position.Right}
