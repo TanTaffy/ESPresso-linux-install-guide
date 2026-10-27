@@ -1473,3 +1473,52 @@ button:focus-visible {
 .parameter-settings > h3 {
   margin-top: 12px;
 }
+
+.plain-fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.imported-badge,
+.pending-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+  padding: 3px 7px;
+  border-radius: 5px;
+  vertical-align: middle;
+}
+.imported-badge {
+  color: #665549;
+  background: #eee7df;
+  border: 1px solid #ded2c5;
+}
+.pending-badge {
+  color: #835d26;
+  background: #fbefd8;
+}
+.imported-notice {
+  padding: 12px;
+  border-left: 3px solid #b38d6b;
+  background: #f7f2ea;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.connection-guide {
+  padding: 12px;
+  border: 1px solid #d8bd92;
+  border-radius: 6px;
+  background: #fff9ee;
+  font-size: 12px;
+}
+.connection-guide pre {
+  overflow: auto;
+  max-height: 320px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.node-step .pending-badge {
+  display: block;
+}

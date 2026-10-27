@@ -78,6 +78,12 @@ export function ExportScreen({
         <FieldLabel label="ESP32 target">
           <select
             aria-label="ESP32 target"
+            disabled={!!project.imported}
+            title={
+              project.imported
+                ? 'The imported hardware target is fixed.'
+                : undefined
+            }
             value={project.target}
             onChange={(e) =>
               change((p) => (p.target = e.target.value as Project['target']))

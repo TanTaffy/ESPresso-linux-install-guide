@@ -13,6 +13,8 @@ export type StepSelection = { phase: Phase; id: string };
 export type FlowData = {
   node: LayoutNode;
   showSteps: boolean;
+  imported: boolean;
+  lockedSteps: string[];
   types: DataType[];
   edit: (id: string) => void;
   step: (taskId: string, phase: Phase, id: string) => void;

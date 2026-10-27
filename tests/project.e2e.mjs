@@ -31,18 +31,13 @@ for (const task of project.nodes)
   }
 const original = request({ op: 'export', project, path: data }).path;
 const source = path.join(original, 'main/tasks/adc_task.cpp');
-const key = `step-${Buffer.from(project.nodes[0].loop[0].id).toString('hex')}`;
-fs.writeFileSync(
-  source,
-  fs
-    .readFileSync(source, 'utf8')
-    .replace(
-      new RegExp(
-        `(// espresso:begin ${key}\\n)[\\s\\S]*?(?= *// espresso:end ${key})`,
-      ),
-      '$1    pressure.raw_count = 123;\n',
-    ),
-);
+const wholeSource = fs
+  .readFileSync(source, 'utf8')
+  .replace(
+    '    // TODO: Read parameters::PRESSURE_CHANNEL into pressure.raw_count.',
+    '    pressure.raw_count = 123;',
+  );
+fs.writeFileSync(source, wholeSource);
 const libraryFolder = path.join(data, 'MSM_LiveData');
 fs.mkdirSync(libraryFolder);
 fs.writeFileSync(
@@ -83,21 +78,114 @@ try {
       exact: true,
     })
     .waitFor();
+  await expect(page.getByTestId('node-task-adc')).toContainText(
+    'Imported · Limited editing',
+  );
+  await expect(
+    page.getByRole('button', { name: 'Delete selected node', exact: true }),
+  ).toBeDisabled();
+  const edgeCount = await page.locator('.react-flow__edge').count();
+  await page
+    .locator('.react-flow__edge-interaction')
+    .first()
+    .dispatchEvent('dblclick');
+  await expect(
+    page.getByText('Imported connections cannot be removed.', { exact: true }),
+  ).toBeVisible();
+  await expect(page.locator('.react-flow__edge')).toHaveCount(edgeCount);
   await page.getByRole('button', { name: 'Edit ADC', exact: true }).click();
   await expect(
-    page.getByRole('button', {
-      name: /Read pressure channel Code placeholder · Code present/,
-    }),
+    page.getByRole('textbox', { name: 'Task C++ symbol', exact: true }),
+  ).toBeDisabled();
+  await expect(
+    page.getByRole('combobox', { name: 'Loop trigger', exact: true }),
+  ).toBeDisabled();
+  await expect(
+    page.getByRole('textbox', { name: 'Task name', exact: true }),
+  ).toBeEnabled();
+  await page
+    .getByRole('textbox', { name: 'Task name', exact: true })
+    .fill('Pressure sensor');
+  await expect(
+    page.getByRole('heading', { name: /Pressure sensor task/ }),
   ).toBeVisible();
   await page
+    .getByRole('textbox', { name: 'Task name', exact: true })
+    .fill('ADC');
+  await expect(
+    page.getByRole('textbox', { name: 'Parameter name 0', exact: true }),
+  ).toBeDisabled();
+  for (const button of await page
+    .getByRole('button', { name: 'Placeholder', exact: true })
+    .all())
+    await expect(button).toBeDisabled();
+  await page
+    .getByRole('button', { name: /Read pressure channel Code placeholder/ })
+    .click();
+  await expect(
+    page.getByRole('textbox', { name: 'Step name', exact: true }),
+  ).toBeDisabled();
+  await expect(
+    page.getByRole('combobox', { name: 'Step type', exact: true }),
+  ).toBeDisabled();
+  await expect(
+    page.getByRole('button', {
+      name: 'Delete step Read pressure channel',
+      exact: true,
+    }),
+  ).toBeDisabled();
+  await expect(
+    page.getByRole('button', {
+      name: 'Move Read pressure channel down',
+      exact: true,
+    }),
+  ).toBeDisabled();
+  await page
+    .getByRole('button', { name: 'Read struct', exact: true })
+    .last()
+    .click();
+  await expect(
+    page.getByRole('textbox', { name: 'Step name', exact: true }),
+  ).toBeEnabled();
+  await expect(page.locator('.connection-guide pre')).toContainText(
+    'read_pressure()',
+  );
+  await page
+    .getByRole('button', { name: 'Mark code updated', exact: true })
+    .click();
+  await expect(page.locator('.connection-guide')).toHaveCount(0);
+  await page
+    .getByRole('textbox', { name: 'Step name', exact: true })
+    .fill('Read another pressure sample');
+  await expect(page.locator('.connection-guide')).toContainText(
+    'Requires code update',
+  );
+  await page
     .getByRole('button', {
-      name: /Read pressure channel Code placeholder · Code present/,
+      name: 'Delete step Read another pressure sample',
+      exact: true,
     })
     .click();
+  await page
+    .getByRole('button', { name: 'Read struct', exact: true })
+    .last()
+    .click();
+  await page
+    .getByRole('button', { name: 'Publish', exact: true })
+    .last()
+    .click();
+  await expect(page.locator('.connection-guide pre')).toContainText(
+    'write_pressure',
+  );
+  await expect(
+    page.getByText('Imported task files are preserved.', { exact: true }),
+  ).toBeVisible();
   await page.locator('.imported-code summary').click();
   await expect(page.locator('.imported-code pre')).toContainText(
     'pressure.raw_count = 123;',
   );
+  fs.mkdirSync('test-results', { recursive: true });
+  await page.screenshot({ path: 'test-results/imported-task.png' });
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   await app.evaluate(({ dialog }, folder) => {
     dialog.showOpenDialog = async () => ({
@@ -146,7 +234,21 @@ try {
     'utf8',
   );
   assert.match(generated, /pressure.raw_count = 123/);
-  assert.match(generated, /#include "MSM_LiveData.hpp"/);
+  assert.equal(generated, wholeSource);
+  assert.match(
+    fs.readFileSync(
+      path.join(output, 'pressure-node/connection-updates.md'),
+      'utf8',
+    ),
+    /read_pressure/,
+  );
+  assert.match(
+    fs.readFileSync(
+      path.join(output, 'pressure-node/connection-updates.md'),
+      'utf8',
+    ),
+    /write_pressure/,
+  );
   assert.ok(
     fs.existsSync(
       path.join(
@@ -159,7 +261,7 @@ try {
     request({
       op: 'import-project',
       path: path.join(output, 'pressure-node/espresso.project.json'),
-    }).project.code[key].includes('123'),
+    }).project.sourceFiles['main/tasks/adc_task.cpp'].content.includes('123'),
   );
   fs.mkdirSync('test-results', { recursive: true });
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();

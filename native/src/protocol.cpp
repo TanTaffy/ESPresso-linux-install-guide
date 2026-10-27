@@ -64,7 +64,7 @@ json handle(const json &request)
         if (valid)
             try
             {
-                auto generated = generate(project);
+                auto generated = generate(project, &diagnostics);
                 restore_preserved(project, generated);
                 for (const auto &[name, bytes] : generated)
                 {
@@ -96,11 +96,6 @@ json handle(const json &request)
         {
             config_content = project.value("configFile", json::object()).value("content", "");
         }
-        if (files.contains("espresso-recovered-code.txt"))
-            diagnostics.push_back({{"severity", "warning"},
-                                   {"message", "Removed sections contain code. Export retains it "
-                                               "in espresso-recovered-code.txt."},
-                                   {"nodeId", ""}});
         json step_code = json::object();
         const auto code = project.value("code", json::object());
         for (const auto &task : project["nodes"])
@@ -112,9 +107,13 @@ json handle(const json &request)
                         if (code.contains(key))
                             step_code[step["id"].get<std::string>()] = code[key];
                     }
-        return {{"diagnostics", diagnostics},      {"valid", valid},
-                {"configContent", config_content}, {"stepStates", code_states(project)},
-                {"stepCode", step_code},           {"files", files}};
+        return {{"diagnostics", diagnostics},
+                {"valid", valid},
+                {"configContent", config_content},
+                {"stepStates", code_states(project)},
+                {"stepCode", step_code},
+                {"connectionCode", pending_connections(project)},
+                {"files", files}};
     }
     if (op == "export")
     {

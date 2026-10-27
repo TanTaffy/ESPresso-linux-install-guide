@@ -3,6 +3,7 @@ import { Empty } from '../components/Empty';
 import { StructFields } from '../components/StructFields';
 import type { EditorController } from '../editor/useEditor';
 import type { Phase } from '../model';
+import { importedNode, lockedConnection } from '../imported';
 import { FieldLabel } from '../components/FieldLabel';
 
 type Props = Pick<
@@ -36,6 +37,7 @@ export function StructScreen({
   change,
   project,
 }: Props) {
+  const imported = !!importedNode(project, shared?.id);
   return shared ? (
     <>
       <div className="page-heading">
@@ -84,10 +86,20 @@ export function StructScreen({
       </div>
       <div className="struct-layout">
         <main className="struct-editor">
+          {imported && (
+            <p className="imported-notice">
+              <span className="imported-badge">
+                Imported · Fixed definition
+              </span>{' '}
+              Existing names, payload fields and delivery are read-only. Add new
+              connections on the canvas.
+            </p>
+          )}
           <div className="form-pair">
             <FieldLabel label="Delivery">
               <select
                 aria-label="Data delivery"
+                disabled={imported}
                 value={shared.delivery ?? 'snapshot'}
                 onChange={(e) =>
                   change((p) => {
@@ -158,6 +170,7 @@ export function StructScreen({
           )}
           <StructFields
             shared={shared}
+            imported={imported}
             updateShared={updateShared}
             types={project?.types}
           />
@@ -190,6 +203,7 @@ export function StructScreen({
                     <button
                       className="icon-button danger"
                       aria-label={`Remove ${t.name} ${s.kind} connection`}
+                      disabled={!!project && lockedConnection(project, s.id)}
                       onClick={() => removeConnection(s.id)}
                     >
                       <X size={15} />
@@ -214,6 +228,7 @@ export function StructScreen({
                 <button
                   className="icon-button danger"
                   aria-label={`Remove ${t.name} queue trigger`}
+                  disabled={!!importedNode(project, t.id)}
                   onClick={() =>
                     removeConnection(`trigger:${t.id}:${shared.id}`)
                   }
@@ -280,6 +295,7 @@ export function StructScreen({
           </code>
           <button
             className="button danger spaced"
+            disabled={imported}
             onClick={() => removeNode(shared.id)}
           >
             <Trash2 size={15} />

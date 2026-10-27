@@ -26,6 +26,8 @@ export function LibraryScreen({ project, change, run, busy, notify }: Props) {
   }, []);
   if (!project) return null;
   const libraries = project.libraries ?? [];
+  const imported = (id: string) =>
+    project.imported?.libraries.some((l) => l.id === id) ?? false;
   return (
     <>
       <div className="page-heading">
@@ -132,6 +134,7 @@ export function LibraryScreen({ project, change, run, busy, notify }: Props) {
                 <button
                   className="button danger"
                   aria-label={`Remove library ${lib.name}`}
+                  disabled={imported(lib.id)}
                   onClick={() => {
                     change((p) => {
                       p.libraries = (p.libraries ?? []).filter(
@@ -189,6 +192,7 @@ export function LibraryScreen({ project, change, run, busy, notify }: Props) {
               key={draft.id}
               library={draft}
               busy={busy}
+              readOnly={imported(draft.id)}
               save={async (library, saveDefault) => {
                 const result = await run(() =>
                   window.espresso.checkLibrary({
@@ -223,7 +227,7 @@ export function LibraryScreen({ project, change, run, busy, notify }: Props) {
             <div className="info-note">
               Select a library to view its settings. Local source is stored with
               the layout; GitHub source is fetched on export. Class instances
-              and initialisation belong in the editable task sections.
+              and initialisation belong in your task source files.
             </div>
           )}
         </section>
@@ -236,8 +240,10 @@ function LibraryForm({
   busy,
   save,
   cancel,
+  readOnly = false,
 }: {
   library: Library;
+  readOnly?: boolean;
   busy: boolean;
   save: (lib: Library, saveDefault: boolean) => Promise<void>;
   cancel: () => void;
@@ -271,80 +277,94 @@ function LibraryForm({
       }}
     >
       <h2>Library settings</h2>
-      <FieldLabel label="Component name">
-        <input
-          aria-label="Library name"
-          required
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
-      </FieldLabel>
-      {library.source === 'github' && (
-        <>
-          <FieldLabel label="GitHub repository">
-            <input
-              aria-label="GitHub repository"
-              placeholder="owner/repository"
-              required
-              value={repository}
-              onChange={(e) => setRepository(e.target.value)}
-            />
-          </FieldLabel>
-          <FieldLabel label="Release">
-            <input
-              aria-label="Library release"
-              placeholder="latest or v1.0.0"
-              required
-              value={version}
-              onChange={(e) => setVersion(e.target.value)}
-            />
-          </FieldLabel>
-          <p className="info-note">
-            Use latest for a fresh stable release on every export, or enter a
-            published release tag. Public repositories only.
-          </p>
-        </>
+      {readOnly && (
+        <p className="imported-notice">
+          <span className="imported-badge">Imported · Read-only</span> Source
+          and build definitions are preserved. Add a new library for additional
+          functionality.
+        </p>
       )}
-      <FieldLabel label="Task include headers (comma separated)">
-        <input
-          aria-label="Library headers"
-          placeholder="Sensor.hpp"
-          value={headers}
-          onChange={(e) => setHeaders(e.target.value)}
-        />
-      </FieldLabel>
-      <FieldLabel label="ESP-IDF dependencies (comma separated)">
-        <input
-          aria-label="Library dependencies"
-          placeholder="freertos, esp_timer"
-          value={dependencies}
-          onChange={(e) => setDependencies(e.target.value)}
-        />
-      </FieldLabel>
-      <p className="info-note">
-        ESPresso generates component CMake files for simple C/C++ source
-        libraries. Custom build scripts and binary libraries are outside this
-        manager.
-      </p>
-      <label className="library-assignment">
-        <input
-          type="checkbox"
-          aria-label="Save library as default"
-          checked={saveDefault}
-          onChange={(e) => setSaveDefault(e.target.checked)}
-        />
-        Save to libraries folder for future layouts
-      </label>
-      <div className="actions">
-        {
-          <button className="button primary" disabled={busy} type="submit">
-            Save library
+      <fieldset disabled={readOnly} className="plain-fieldset">
+        <FieldLabel label="Component name">
+          <input
+            aria-label="Library name"
+            required
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </FieldLabel>
+        {library.source === 'github' && (
+          <>
+            <FieldLabel label="GitHub repository">
+              <input
+                aria-label="GitHub repository"
+                placeholder="owner/repository"
+                required
+                value={repository}
+                onChange={(e) => setRepository(e.target.value)}
+              />
+            </FieldLabel>
+            <FieldLabel label="Release">
+              <input
+                aria-label="Library release"
+                placeholder="latest or v1.0.0"
+                required
+                value={version}
+                onChange={(e) => setVersion(e.target.value)}
+              />
+            </FieldLabel>
+            <p className="info-note">
+              Use latest for a fresh stable release on every export, or enter a
+              published release tag. Public repositories only.
+            </p>
+          </>
+        )}
+        <FieldLabel label="Task include headers (comma separated)">
+          <input
+            aria-label="Library headers"
+            placeholder="Sensor.hpp"
+            value={headers}
+            onChange={(e) => setHeaders(e.target.value)}
+          />
+        </FieldLabel>
+        <FieldLabel label="ESP-IDF dependencies (comma separated)">
+          <input
+            aria-label="Library dependencies"
+            placeholder="freertos, esp_timer"
+            value={dependencies}
+            onChange={(e) => setDependencies(e.target.value)}
+          />
+        </FieldLabel>
+        <p className="info-note">
+          ESPresso generates component CMake files for simple C/C++ source
+          libraries. Custom build scripts and binary libraries are outside this
+          manager.
+        </p>
+        <label className="library-assignment">
+          <input
+            type="checkbox"
+            aria-label="Save library as default"
+            checked={saveDefault}
+            onChange={(e) => setSaveDefault(e.target.checked)}
+          />
+          Save to libraries folder for future layouts
+        </label>
+        <div className="actions">
+          {
+            <button className="button primary" disabled={busy} type="submit">
+              Save library
+            </button>
+          }
+          <button className="button" type="button" onClick={cancel}>
+            Close
           </button>
-        }
-        <button className="button" type="button" onClick={cancel}>
+        </div>
+      </fieldset>
+      {readOnly && (
+        <button type="button" className="button" onClick={cancel}>
           Close
         </button>
-      </div>
+      )}
     </form>
   );
 }

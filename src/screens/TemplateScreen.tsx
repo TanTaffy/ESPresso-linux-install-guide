@@ -302,9 +302,9 @@ export function TemplateScreen({
             ))}
             <h3>Base code</h3>
             <p className="info-note">
-              Code is copied into editable export sections. Use task config
-              settings for hardware settings and static or anonymous-namespace
-              helpers when reusing a type. Connect project structs, queues and
+              Code is copied into the task skeleton. Use task config settings
+              for hardware settings and static or anonymous-namespace helpers
+              when reusing a type. Connect project structs, queues and
               notifications after adding a task.
             </p>
             {(

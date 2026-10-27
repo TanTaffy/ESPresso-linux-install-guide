@@ -48,8 +48,7 @@ std::string base64_decode(const std::string &text);
 bool preserved_path(const std::string &path);
 void check_preserved(const json &project);
 void restore_preserved(const json &project, Files &files);
-std::string merge_build(const std::string &original, const std::string &generated,
-                        const std::string &base = "");
+void check_build(const std::string &content);
 bool queue_node(const json &node);
 json trigger_ids(const json &task);
 bool multi_watches(const json &project, const std::string &id);
@@ -58,17 +57,20 @@ void check_shape(const json &project);
 json validate(const json &project);
 bool has_errors(const json &diagnostics);
 
-Files generate(const json &project);
+Files generate(const json &project, json *diagnostics = nullptr);
 Files queue_files(const json &node, const json &project);
 std::string event_runtime(const std::vector<json> &tasks, const std::map<std::string, json> &data);
 std::string loop_parameters(const json &task, const std::map<std::string, json> &data);
-std::string region(const json &project, const std::string &key, const std::string &body,
-                   const std::string &indent = "");
+std::string base_code(const json &project, const std::string &key, const std::string &body);
+std::string task_file_owner(const json &project, const std::string &name);
+void preserve_sources(const json &project, Files &files);
 std::string region_key(const std::string &kind, const std::string &id);
 json code_states(const json &project);
+void capture_import(json &project);
+json validate_imported(const json &project);
+json pending_connections(const json &project);
 json project_manifest(const json &project, const Files &files);
 json import_project(const fs::path &manifest);
-void add_recovered_code(const json &project, Files &files);
 bool safe_relative(const std::string &path);
 void normalize_project(json &project);
 json handle_catalog(const json &request);

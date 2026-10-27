@@ -69,6 +69,8 @@ std::string event_runtime(const std::vector<json> &tasks, const std::map<std::st
         "\"project_headers.hpp\"\n#include \"data_signals.hpp\"\n#include \"esp_err.h\"\n";
     for (const auto &t : tasks)
         out += "#include \"tasks/" + t["symbol"].get<std::string>() + "_task.hpp\"\n";
+    for (const auto &[id, q] : data)
+        out += "#include \"shared/" + q["symbol"].get<std::string>() + ".hpp\"\n";
     out += "\nnamespace {\nEventGroupHandle_t started = nullptr;\nnamespace handles {\n";
     for (const auto &t : tasks)
         out += "TaskHandle_t " + t["symbol"].get<std::string>() + " = nullptr;\n";
@@ -139,6 +141,11 @@ std::string event_runtime(const std::vector<json> &tasks, const std::map<std::st
         out += "    }\n}\n";
     }
     out += "}\n\nnamespace espresso::generated {\n";
+    out += "void init_shared()\n{\n";
+    for (const auto &[id, q] : data)
+        out += "    ESP_ERROR_CHECK(espresso::shared::init_" + q["symbol"].get<std::string>() +
+               "());\n";
+    out += "}\n\n";
     for (const auto &t : tasks)
         if (t.value("trigger", "periodic") == "notification")
         {

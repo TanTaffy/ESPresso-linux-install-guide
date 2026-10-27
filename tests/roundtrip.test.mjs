@@ -176,12 +176,9 @@ test('export, implement, import, add GPS and re-export retains config, code, bui
   fs.writeFileSync(configPath, handwritten);
   const adcPath = path.join(first, 'main/tasks/adc_task.cpp');
   let adcSource = fs.readFileSync(adcPath, 'utf8');
-  const key = `step-${Buffer.from('adc-sample').toString('hex')}`;
   adcSource = adcSource.replace(
-    new RegExp(
-      `(// espresso:begin ${key}\\n)[\\s\\S]*?(?= *// espresso:end ${key})`,
-    ),
-    '$1    const int sample = 17;\n    (void)sample;\n',
+    '    // TODO: Implement this step.',
+    '    const int sample = 17;\n    (void)sample;',
   );
   adcSource +=
     '\nnamespace driver_helpers { int unchanged() { return 99; } }\n';
@@ -207,12 +204,8 @@ test('export, implement, import, add GPS and re-export retains config, code, bui
     fs
       .readFileSync(path.join(first, 'main/CMakeLists.txt'), 'utf8')
       .replace(
-        '\n)\n# espresso:end sources',
-        '\n    "drivers/Spi.cpp"\n)\n# espresso:end sources',
-      )
-      .replace(
-        '# espresso:begin libraries\n',
-        '# espresso:begin libraries\n    PRIV_REQUIRES esp_driver_spi\n',
+        'idf_component_register(',
+        'list(APPEND ESPRESSO_SOURCES "drivers/Spi.cpp")\nlist(APPEND ESPRESSO_REQUIRES esp_driver_spi)\n\nidf_component_register(',
       ) +
     '\ntarget_compile_definitions(${COMPONENT_LIB} PRIVATE CUSTOM_BOARD=1)\n';
   fs.writeFileSync(
@@ -289,7 +282,7 @@ test('export, implement, import, add GPS and re-export retains config, code, bui
     adcHeader,
   );
   assert.match(
-    fs.readFileSync(path.join(second, 'main/CMakeLists.txt'), 'utf8'),
+    fs.readFileSync(path.join(second, 'main/generated/project.cmake'), 'utf8'),
     /gps_task.cpp/,
   );
   assert.match(
@@ -297,8 +290,8 @@ test('export, implement, import, add GPS and re-export retains config, code, bui
     /CUSTOM_BOARD=1/,
   );
   assert.match(
-    fs.readFileSync(path.join(second, 'main/CMakeLists.txt'), 'utf8'),
-    /PRIV_REQUIRES GPSLib esp_driver_spi/,
+    fs.readFileSync(path.join(second, 'main/generated/project.cmake'), 'utf8'),
+    /ESPRESSO_REQUIRES GPSLib/,
   );
   assert.match(
     fs.readFileSync(path.join(second, 'main/CMakeLists.txt'), 'utf8'),
@@ -467,4 +460,165 @@ test('ordinary include guards and reopened namespaces expose scalar constants wi
   assert.match(rendered, /COUNT = 12/);
   assert.match(rendered, /ENABLED = true/);
   assert.ok(rendered.endsWith('#endif\n'));
+});
+
+test('all exported source and build files are marker-free, including template base code', () => {
+  const p = project();
+  const key = `step-${Buffer.from('adc-sample').toString('hex')}`;
+  p.code = { [key]: '    const int sample = 7;\n    (void)sample;\n' };
+  const preview = request({ op: 'preview', project: p });
+  assert.equal(preview.valid, true);
+  for (const [name, content] of Object.entries(preview.files)) {
+    if (/\.(cpp|hpp|cmake|txt)$/.test(name))
+      assert.doesNotMatch(content, /espresso:(begin|end)/, name);
+  }
+  assert.match(
+    preview.files['main/tasks/adc_task.cpp'],
+    /const int sample = 7/,
+  );
+});
+
+test('imported tasks cannot be deleted and their whole files remain in the snapshot', () => {
+  const first = exportTo(project());
+  const imported = request({
+    op: 'import-project',
+    path: path.join(first, 'espresso.project.json'),
+  }).project;
+  const original = imported.sourceFiles['main/tasks/adc_task.cpp'].content;
+  imported.nodes = [];
+  const preview = request({ op: 'preview', project: imported });
+  assert.equal(preview.valid, false);
+  assert.ok(
+    preview.diagnostics.some((d) => d.message.includes('cannot be deleted')),
+  );
+  assert.equal(
+    imported.sourceFiles['main/tasks/adc_task.cpp'].content,
+    original,
+  );
+});
+
+test('imported task symbol and event interface changes report conflicts without changing source', () => {
+  const first = exportTo(project());
+  const imported = request({
+    op: 'import-project',
+    path: path.join(first, 'espresso.project.json'),
+  }).project;
+  const source = imported.sourceFiles['main/tasks/adc_task.cpp'].content;
+  imported.nodes[0].symbol = 'renamed';
+  let preview = request({ op: 'preview', project: imported });
+  assert.equal(preview.valid, false);
+  assert.ok(preview.diagnostics.some((d) => d.message.includes('C++ symbol')));
+  imported.nodes[0].symbol = 'adc';
+  imported.nodes.push({
+    id: 'queue',
+    kind: 'struct',
+    name: 'Samples',
+    symbol: 'samples',
+    typeName: 'Samples',
+    position: { x: 0, y: 0 },
+    delivery: 'queue',
+    capacity: 4,
+    fields: [],
+  });
+  imported.nodes[0].trigger = 'queue';
+  imported.nodes[0].queueId = 'queue';
+  preview = request({ op: 'preview', project: imported });
+  assert.equal(preview.valid, false);
+  assert.ok(
+    preview.diagnostics.some((d) => d.message.includes('trigger interfaces')),
+  );
+  assert.equal(imported.sourceFiles['main/tasks/adc_task.cpp'].content, source);
+});
+
+test('whole source bytes survive reimport while new tasks and queues update the runtime and build', () => {
+  const first = exportTo(project());
+  const sourcePath = 'main/tasks/adc_task.cpp';
+  const source =
+    '// Custom \u03bcV implementation\r\n' +
+    fs
+      .readFileSync(path.join(first, sourcePath), 'utf8')
+      .replaceAll('\n', '\r\n')
+      .trimEnd();
+  const headerPath = 'main/tasks/adc_task.hpp';
+  const header =
+    fs.readFileSync(path.join(first, headerPath), 'utf8') +
+    '\n// Extra helper\ninline int helper() { return 17; }';
+  fs.writeFileSync(path.join(first, sourcePath), source);
+  fs.writeFileSync(path.join(first, headerPath), header);
+  const main = fs
+    .readFileSync(path.join(first, 'main/main.cpp'), 'utf8')
+    .replace(
+      '// TODO: Initialise shared hardware before starting tasks.',
+      'const int hardware = 17; (void)hardware;',
+    );
+  fs.writeFileSync(path.join(first, 'main/main.cpp'), main);
+  const imported = request({
+    op: 'import-project',
+    path: path.join(first, 'espresso.project.json'),
+  }).project;
+  imported.nodes.push(task('gps'));
+  imported.nodes.push({
+    id: 'queue',
+    kind: 'struct',
+    name: 'Samples',
+    symbol: 'samples',
+    typeName: 'Samples',
+    position: { x: 0, y: 0 },
+    delivery: 'queue',
+    capacity: 4,
+    fields: [],
+  });
+  imported.nodes[0].periodMs = 25;
+  imported.nodes[0].priority = 5;
+  imported.nodes[0].stackBytes = 8192;
+  const second = exportTo(imported);
+  for (const [name, expected] of [
+    [sourcePath, source],
+    [headerPath, header],
+    ['main/main.cpp', main],
+  ])
+    assert.deepEqual(
+      fs.readFileSync(path.join(second, name)),
+      Buffer.from(expected),
+      name,
+    );
+  const preview = request({ op: 'preview', project: imported });
+  assert.match(
+    preview.files['main/generated/task_runtime.cpp'],
+    /init_shared\(\)[\s\S]*init_samples\(\)/,
+  );
+  assert.match(preview.files['main/main.cpp'], /generated::init_shared\(\)/);
+  assert.match(preview.files['main/generated/task_runtime.cpp'], /gps_entry/);
+  assert.match(preview.files['main/generated/project.cmake'], /gps_task.cpp/);
+  assert.match(preview.configContent, /PERIOD_MS = 25/);
+  assert.match(preview.configContent, /PRIORITY = 5/);
+  assert.match(preview.configContent, /STACK_BYTES = 8192/);
+  const again = request({
+    op: 'import-project',
+    path: path.join(second, 'espresso.project.json'),
+  }).project;
+  const third = exportTo(again);
+  assert.deepEqual(
+    fs.readFileSync(path.join(third, sourcePath)),
+    Buffer.from(source),
+  );
+  const build = fs.readFileSync(
+    path.join(second, 'main/CMakeLists.txt'),
+    'utf8',
+  );
+  const checkDir = fs.mkdtempSync(path.join(os.tmpdir(), 'espresso-cmake-'));
+  const script = path.join(checkDir, 'check.cmake');
+  fs.writeFileSync(
+    script,
+    'cmake_minimum_required(VERSION 3.16)\nfunction(idf_component_register)\n    cmake_parse_arguments(COMP "" "" "SRCS;PRIV_REQUIRES;INCLUDE_DIRS" ${ARGN})\n    if(NOT "tasks/gps_task.cpp" IN_LIST COMP_SRCS OR NOT "shared/samples.cpp" IN_LIST COMP_SRCS)\n        message(FATAL_ERROR "Missing generated source registration")\n    endif()\nendfunction()\n' +
+      build,
+  );
+  const cmake = fs
+    .readFileSync('build/native/CMakeCache.txt', 'utf8')
+    .match(/^CMAKE_COMMAND:INTERNAL=(.+)$/m)[1]
+    .trim();
+  execFileSync(cmake, ['-P', script], {
+    cwd: path.join(second, 'main'),
+    windowsHide: true,
+  });
 });

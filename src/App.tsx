@@ -28,6 +28,8 @@ import {
   Settings2,
   ListPlus,
 } from 'lucide-react';
+import { importedNode, lockedConnection } from './imported';
+import type { Task } from './model';
 import { nodeTypes } from './components/DiagramNode';
 import { TaskSettings } from './components/TaskSettings';
 import type { FlowNode } from './editor/types';
@@ -287,6 +289,9 @@ export default function App() {
                 >
                   <TaskIcon icon={t.icon} size={14} />
                   {t.name || 'Unnamed task'}
+                  {importedNode(project, t.id) && (
+                    <small className="imported-badge">Imported</small>
+                  )}
                 </button>
               ))}
             </div>
@@ -402,6 +407,14 @@ export default function App() {
                   return (
                     !!a &&
                     !!b &&
+                    !(
+                      c.sourceHandle?.startsWith('step:') &&
+                      lockedConnection(project, c.sourceHandle.slice(5))
+                    ) &&
+                    !(
+                      c.targetHandle?.startsWith('step:') &&
+                      lockedConnection(project, c.targetHandle.slice(5))
+                    ) &&
                     (a.kind !== b.kind ||
                       (a.kind === 'task' &&
                         b.kind === 'task' &&
@@ -455,7 +468,10 @@ export default function App() {
                 <i className="legend-dot teal" />
                 Snapshots & queued messages
               </span>
-              <span>Drag ports to connect · Double-click a wire to remove</span>
+              <span>
+                Drag ports to connect · Double-click a new wire to remove;
+                imported wires are protected
+              </span>
             </div>
           </section>
           <aside className="inspector">
@@ -471,6 +487,12 @@ export default function App() {
                 <button
                   className="icon-button danger"
                   aria-label="Delete selected node"
+                  disabled={!!importedNode(project, selected.id)}
+                  title={
+                    importedNode(project, selected.id)
+                      ? 'Imported items cannot be deleted.'
+                      : undefined
+                  }
                   onClick={() => removeNode(selected.id)}
                 >
                   <Trash2 size={16} />
@@ -481,6 +503,7 @@ export default function App() {
               <>
                 <TaskSettings
                   task={task}
+                  imported={importedNode(project, task?.id) as Task | undefined}
                   updateTask={updateTask}
                   structs={structs}
                   compact

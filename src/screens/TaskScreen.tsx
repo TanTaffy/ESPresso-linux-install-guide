@@ -12,7 +12,8 @@ import { Empty } from '../components/Empty';
 import { FieldLabel } from '../components/FieldLabel';
 import { TaskSettings } from '../components/TaskSettings';
 import type { EditorController } from '../editor/useEditor';
-import type { Phase, Step } from '../model';
+import { importedNode, importedStep } from '../imported';
+import type { Phase, Step, Task } from '../model';
 
 type Props = Pick<
   EditorController,
@@ -51,11 +52,25 @@ export function TaskScreen({
   preview,
   newTemplate,
 }: Props) {
+  const importedFile = Object.entries(project?.sourceFiles ?? {}).find(
+    ([name, file]) => file.taskId === task?.id && name.endsWith('_task.cpp'),
+  );
+  const baseline = importedNode(project, task?.id) as Task | undefined;
+  const stepLocked = !!(
+    task &&
+    selectedStep &&
+    importedStep(project, task.id, selectedStep.id)
+  );
   return task ? (
     <>
       <div className="page-heading">
         <div>
-          <h1>{task.name} task</h1>
+          <h1>
+            {task.name} task{' '}
+            {baseline && (
+              <span className="imported-badge">Imported · Limited editing</span>
+            )}
+          </h1>
           <p>
             Setup runs once.{' '}
             {task.trigger === 'queues'
@@ -68,7 +83,15 @@ export function TaskScreen({
           </p>
         </div>
         <div className="actions">
-          <button className="button" onClick={() => newTemplate(task)}>
+          <button
+            className="button"
+            onClick={() => newTemplate(task)}
+            title={
+              importedFile
+                ? 'Saves the task layout and template base code. Imported source stays with this project.'
+                : undefined
+            }
+          >
             Save as task type
           </button>
           <select
@@ -94,8 +117,19 @@ export function TaskScreen({
       <div className="task-layout">
         <aside className="task-settings">
           <h3>Task settings</h3>
-          <TaskSettings task={task} updateTask={updateTask} structs={structs} />
+          <TaskSettings
+            task={task}
+            updateTask={updateTask}
+            structs={structs}
+            imported={baseline}
+          />
           <h3>Libraries</h3>
+          {baseline && (
+            <p className="info-note">
+              New assignments add build dependencies. Add their headers and
+              calls in your editor.
+            </p>
+          )}
           {!project?.libraries?.length && (
             <p className="info-note">Add libraries on the Libraries screen.</p>
           )}
@@ -106,6 +140,7 @@ export function TaskScreen({
                   type="checkbox"
                   aria-label={`Give ${task.name} access to ${lib.name}`}
                   checked={(task.libraryIds ?? []).includes(lib.id)}
+                  disabled={baseline?.libraryIds?.includes(lib.id)}
                   onChange={(e) =>
                     updateTask((t) => {
                       t.libraryIds = e.target.checked
@@ -120,6 +155,21 @@ export function TaskScreen({
           })}
         </aside>
         <main className="steps-editor">
+          {importedFile && (
+            <div className="info-note">
+              <strong>Imported task files are preserved.</strong>
+              <p>
+                Existing steps, connectors, symbols and trigger interfaces are
+                read-only. Add new connectors and integrate their calls in your
+                editor. Timing and config values remain editable. Re-import to
+                refresh the source snapshot.
+              </p>
+              <details className="imported-code">
+                <summary>Preserved task file · {importedFile[0]}</summary>
+                <pre>{importedFile[1].content}</pre>
+              </details>
+            </div>
+          )}
           {(['setup', 'loop'] as Phase[]).map((phase) => (
             <section className="step-group" key={phase}>
               <div className="section-title">
@@ -138,7 +188,7 @@ export function TaskScreen({
                 <div
                   className="edit-step-row"
                   key={s.id}
-                  draggable
+                  draggable={!baseline}
                   onDragStart={(e) =>
                     e.dataTransfer.setData(
                       'application/espresso-step',
@@ -168,9 +218,11 @@ export function TaskScreen({
                       <strong>{s.name || 'Unnamed step'}</strong>
                       <small>
                         {s.kind === 'placeholder'
-                          ? preview?.stepStates?.[s.id] === 'Code present'
-                            ? 'Code placeholder · Code present'
-                            : 'Code placeholder · Empty'
+                          ? importedFile
+                            ? 'Code placeholder'
+                            : preview?.stepStates?.[s.id] === 'Code present'
+                              ? 'Code placeholder · Base code'
+                              : 'Code placeholder · Empty'
                           : s.kind === 'notify'
                             ? 'Notify task'
                             : s.kind === 'send' || s.kind === 'receive'
@@ -178,6 +230,11 @@ export function TaskScreen({
                               : `${s.kind === 'read' ? 'Read' : 'Publish'} shared snapshot`}
                       </small>
                     </div>
+                    {s.requiresCode && (
+                      <span className="pending-badge">
+                        Requires code update
+                      </span>
+                    )}
                     {s.kind !== 'placeholder' && (
                       <span className="access-badge">{s.kind}</span>
                     )}
@@ -185,7 +242,7 @@ export function TaskScreen({
                   <div className="step-row-tools">
                     <button
                       className="icon-button"
-                      disabled={i === 0}
+                      disabled={!!baseline || i === 0}
                       aria-label={`Move ${s.name} up`}
                       onClick={() => moveStep(phase, s.id, -1)}
                     >
@@ -193,7 +250,7 @@ export function TaskScreen({
                     </button>
                     <button
                       className="icon-button"
-                      disabled={i === task[phase].length - 1}
+                      disabled={!!baseline || i === task[phase].length - 1}
                       aria-label={`Move ${s.name} down`}
                       onClick={() => moveStep(phase, s.id, 1)}
                     >
@@ -202,6 +259,7 @@ export function TaskScreen({
                     <button
                       className="icon-button danger"
                       aria-label={`Delete step ${s.name}`}
+                      disabled={importedStep(project, task.id, s.id)}
                       onClick={() => {
                         updateTask(
                           (t) =>
@@ -218,6 +276,12 @@ export function TaskScreen({
               <div className="add-step-row">
                 <button
                   className="button dashed"
+                  disabled={!!baseline}
+                  title={
+                    baseline
+                      ? 'Imported task flow is read-only; add input/output connectors instead.'
+                      : undefined
+                  }
                   onClick={() => addStep(phase)}
                 >
                   <Plus size={15} />
@@ -263,9 +327,47 @@ export function TaskScreen({
           <h3>Selected step</h3>
           {selectedStep ? (
             <>
+              {stepLocked && (
+                <p className="info-note">
+                  Imported step · Read-only. Queue timeout values still update
+                  through the Config File.
+                </p>
+              )}
+              {baseline &&
+                selectedStep.kind !== 'placeholder' &&
+                (selectedStep.requiresCode ||
+                  preview?.connectionCode?.[selectedStep.id]) && (
+                  <div className="connection-guide">
+                    <strong>Requires code update</strong>
+                    <p>
+                      Add the include and call in your task source. Adjust the
+                      sample to your implementation.
+                    </p>
+                    <pre>
+                      {preview?.connectionCode?.[selectedStep.id] ??
+                        'Choose a valid connection to see the required code.'}
+                    </pre>
+                    <button
+                      className="button"
+                      onClick={() =>
+                        changeStep((s) => {
+                          s.requiresCode = false;
+                        })
+                      }
+                    >
+                      Mark code updated
+                    </button>
+                    <p className="muted">
+                      Records your confirmation; ESPresso does not inspect the
+                      C++ implementation.
+                    </p>
+                  </div>
+                )}
+
               <FieldLabel label="Step name">
                 <input
                   aria-label="Step name"
+                  disabled={stepLocked}
                   value={selectedStep.name}
                   onChange={(e) => changeStep((s) => (s.name = e.target.value))}
                 />
@@ -273,6 +375,7 @@ export function TaskScreen({
               <FieldLabel label="Step type">
                 <select
                   aria-label="Step type"
+                  disabled={stepLocked}
                   value={selectedStep.kind}
                   onChange={(e) =>
                     changeStep((s) => {
@@ -303,7 +406,9 @@ export function TaskScreen({
                     })
                   }
                 >
-                  <option value="placeholder">Placeholder</option>
+                  <option value="placeholder" disabled={!!baseline}>
+                    Placeholder
+                  </option>
                   <option value="read">Read shared struct</option>
                   <option value="write">Publish shared struct</option>
                   <option value="send">Send queue message</option>
@@ -316,6 +421,7 @@ export function TaskScreen({
                   <FieldLabel label="Implementation note">
                     <textarea
                       aria-label="Implementation note"
+                      disabled={stepLocked}
                       rows={6}
                       value={selectedStep.note}
                       onChange={(e) =>
@@ -327,15 +433,13 @@ export function TaskScreen({
                     The name and note become TODO comments in the generated
                     function. Write the implementation in your usual editor.
                   </div>
-                  {preview?.stepCode?.[selectedStep.id] && (
+                  {!importedFile && preview?.stepCode?.[selectedStep.id] && (
                     <details className="imported-code">
-                      <summary>
-                        Preserved code · {preview.stepStates?.[selectedStep.id]}
-                      </summary>
+                      <summary>Template base code</summary>
                       <pre>{preview.stepCode[selectedStep.id]}</pre>
                       <p>
-                        Read-only snapshot. Re-import the project after editing
-                        its source files.
+                        Read-only base code used when generating this task
+                        skeleton.
                       </p>
                     </details>
                   )}
@@ -344,6 +448,7 @@ export function TaskScreen({
                 <FieldLabel label="Notification target">
                   <select
                     aria-label="Notification target"
+                    disabled={stepLocked}
                     value={selectedStep.taskId ?? ''}
                     onChange={(e) =>
                       changeStep((s) => {
@@ -375,6 +480,7 @@ export function TaskScreen({
                   >
                     <select
                       aria-label="Connected struct"
+                      disabled={stepLocked}
                       value={selectedStep.structId ?? ''}
                       onChange={(e) =>
                         changeStep((s) => {
@@ -405,6 +511,7 @@ export function TaskScreen({
                     <input
                       className="mono"
                       aria-label="Local snapshot name"
+                      disabled={stepLocked}
                       value={selectedStep.localName ?? ''}
                       onChange={(e) =>
                         changeStep((s) => (s.localName = e.target.value))
@@ -477,6 +584,7 @@ export function TaskScreen({
                       >
                         <select
                           aria-label="Queue failure behaviour"
+                          disabled={stepLocked}
                           value={selectedStep.onFailure ?? 'return'}
                           onChange={(e) =>
                             changeStep((s) => {

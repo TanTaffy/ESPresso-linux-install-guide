@@ -1,6 +1,4 @@
 #include "espresso/core.hpp"
-#include <algorithm>
-#include <cctype>
 #include <regex>
 #include <sstream>
 
@@ -104,127 +102,46 @@ void check_preserved(const json &p)
                     content.is_string() &&
                     content.get_ref<const std::string &>().size() <= 128 * 1024,
                 "Invalid build file.");
-    const auto bases = p.value("buildBases", json::object());
-    require(bases.is_object() && bases.size() <= 1, "Invalid build file baseline.");
-    for (const auto &[name, content] : bases.items())
-        require(name == "main/CMakeLists.txt" && content.is_string() &&
-                    content.get_ref<const std::string &>().size() <= 128 * 1024,
-                "Invalid build file baseline.");
-    const auto overrides = p.value("sourceOverrides", json::object());
-    require(overrides.is_object() && overrides.size() <= 300, "Invalid handwritten source files.");
-    for (const auto &[name, entry] : overrides.items())
+    const auto sources = p.value("sourceFiles", json::object());
+    require(sources.is_object() && sources.size() <= 600, "Invalid imported source files.");
+    size_t source_size = 0;
+    std::set<std::string> source_paths;
+    for (const auto &[name, entry] : sources.items())
+    {
+        const auto extension = fs::path(name).extension().string();
         require(safe_relative(name) && name.rfind("main/", 0) == 0 &&
+                    (extension == ".cpp" || extension == ".hpp" || extension == ".h") &&
+                    source_paths.insert(lower(name)).second &&
                     has_string(entry, "content", 2 * 1024 * 1024) &&
-                    has_string(entry, "structure", 2 * 1024 * 1024),
-                "Invalid handwritten source snapshot.");
+                    has_string(entry, "generated", 2 * 1024 * 1024) &&
+                    (!entry.contains("taskId") || has_string(entry, "taskId")),
+                "Invalid imported source snapshot.");
+        source_size += entry["content"].get_ref<const std::string &>().size() +
+                       entry["generated"].get_ref<const std::string &>().size();
+    }
+    require(source_size <= 8 * 1024 * 1024,
+            "Imported source snapshots exceed 8 MB. No files have been dropped.");
     require(!p.contains("libraryLocks") || p["libraryLocks"].is_object(),
             "Invalid library version record.");
 }
-std::string merge_build(const std::string &original, const std::string &generated,
-                        const std::string &base)
+void check_build(const std::string &content)
 {
-    std::string merged = original;
-    auto body = [](const std::string &text, const std::string &kind)
+    // User build code is kept verbatim; generated lists live in their own included file.
+    std::istringstream lines(content);
+    std::string line, code;
+    while (std::getline(lines, line))
     {
-        const std::string begin = "# espresso:begin " + kind, end = "# espresso:end " + kind;
-        const auto a = text.find(begin),
-                   b = text.find(end, a == std::string::npos ? 0 : a + begin.size());
-        require(a != std::string::npos && b != std::string::npos,
-                "main/CMakeLists.txt: restore the ESPresso sources/libraries markers so tasks can "
-                "be registered safely. Your original file is retained.");
-        size_t start = a + begin.size();
-        if (start < text.size() && text[start] == '\r')
-            ++start;
-        require(start < text.size() && text[start] == '\n', "Invalid CMake section marker.");
-        return std::make_pair(start + 1, b);
-    };
-    for (const std::string kind : {"sources", "libraries"})
-    {
-        const auto fresh_range = body(generated, kind), old_range = body(merged, kind);
-        const auto fresh =
-            generated.substr(fresh_range.first, fresh_range.second - fresh_range.first);
-        auto current = merged.substr(old_range.first, old_range.second - old_range.first);
-        const auto base_range = body(base.empty() ? generated : base, kind);
-        const auto baseline = (base.empty() ? generated : base)
-                                  .substr(base_range.first, base_range.second - base_range.first);
-        const std::regex item(kind == "sources" ? "\"([^\"]+)\"" : "[A-Za-z][A-Za-z0-9_]*");
-        auto values = [&](const std::string &text)
-        {
-            std::set<std::string> found;
-            std::istringstream lines(text);
-            std::string line;
-            while (std::getline(lines, line))
-            {
-                const auto comment = line.find('#');
-                if (comment != std::string::npos)
-                    line.resize(comment);
-                for (std::sregex_iterator it(line.begin(), line.end(), item), end; it != end; ++it)
-                {
-                    const auto value = kind == "sources" ? (*it)[1].str() : it->str();
-                    if (value != "PRIV_REQUIRES" && value != "REQUIRES")
-                        found.insert(value);
-                }
-            }
-            return found;
-        };
-        const auto required = values(fresh), previous = values(baseline), present = values(current);
-        // Remove only entries previously owned by the layout. Preserve user-added entries,
-        // comments and custom build code, including additions inside the generated lists.
-        for (const auto &value : previous)
-            if (!required.count(value))
-            {
-                const auto token = kind == "sources" ? "\"" + value + "\"" : value;
-                size_t pos = 0;
-                while ((pos = current.find(token, pos)) != std::string::npos)
-                {
-                    const auto line = current.rfind('\n', pos),
-                               comment =
-                                   current.find('#', line == std::string::npos ? 0 : line + 1);
-                    const bool code = comment == std::string::npos || comment > pos;
-                    const bool boundary =
-                        kind == "sources" ||
-                        ((pos == 0 ||
-                          (!std::isalnum(static_cast<unsigned char>(current[pos - 1])) &&
-                           current[pos - 1] != '_')) &&
-                         (pos + token.size() == current.size() ||
-                          (!std::isalnum(static_cast<unsigned char>(current[pos + token.size()])) &&
-                           current[pos + token.size()] != '_')));
-                    if (code && boundary)
-                        current.erase(pos, token.size());
-                    else
-                        pos += token.size();
-                }
-            }
-        std::string added;
-        for (const auto &value : required)
-            if (!present.count(value))
-                added += (kind == "sources" ? "    \"" + value + "\"\n" : " " + value);
-        if (!added.empty())
-        {
-            if (kind == "sources")
-            {
-                std::smatch close;
-                const bool found = std::regex_search(
-                    current, close, std::regex("(^|\n)[ \\t]*\\)[ \\t]*(?:#[^\n]*)?(?:\r?\n|$)"));
-                require(found,
-                        "Restore the ESPRESSO_SOURCES list before exporting. The original CMake "
-                        "file is retained.");
-                current.insert(static_cast<size_t>(close.position()) +
-                                   (close.str().front() == '\n' ? 1 : 0),
-                               added);
-            }
-            else
-            {
-                const auto key = current.find("PRIV_REQUIRES");
-                if (key == std::string::npos)
-                    current += "    PRIV_REQUIRES" + added + "\n";
-                else
-                    current.insert(key + std::string("PRIV_REQUIRES").size(), added);
-            }
-        }
-        merged.replace(old_range.first, old_range.second - old_range.first, current);
+        const auto comment = line.find('#');
+        code += line.substr(0, comment) + "\n";
     }
-    return merged;
+    require(std::regex_search(code,
+                              std::regex(R"(include\s*\(\s*"?generated/project\.cmake"?\s*\))")) &&
+                code.find("${ESPRESSO_SOURCES}") != std::string::npos &&
+                code.find("${ESPRESSO_REQUIRES}") != std::string::npos,
+            "main/CMakeLists.txt: keep the generated/project.cmake include and the "
+            "ESPRESSO_SOURCES / ESPRESSO_REQUIRES variables so new tasks and libraries can be "
+            "registered. Add custom entries with list(APPEND ...) before idf_component_register. "
+            "Your original build file is retained.");
 }
 void restore_preserved(const json &p, Files &files)
 {

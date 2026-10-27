@@ -1,6 +1,7 @@
 #include "espresso/core.hpp"
+#include <algorithm>
+#include <cctype>
 #include <regex>
-#include <set>
 #include <sstream>
 
 namespace espresso
@@ -26,72 +27,55 @@ std::string region_key(const std::string &kind, const std::string &id)
     }
     return key;
 }
-std::string region(const json &p, const std::string &key, const std::string &body,
-                   const std::string &indent)
+std::string base_code(const json &p, const std::string &key, const std::string &body)
 {
     const auto code = p.value("code", json::object());
-    std::string content = code.contains(key) ? code.at(key).get<std::string>() : body;
-    require(content.empty() || content.back() == '\n', "Code sections must end with a newline.");
-    require(content.find("espresso:begin") == std::string::npos &&
-                content.find("espresso:end") == std::string::npos,
-            "Code contains a reserved section marker.");
-    return indent + "// espresso:begin " + key + "\n" + content + indent + "// espresso:end " +
-           key + "\n";
+    return code.contains(key) ? code.at(key).get<std::string>() : body;
 }
-struct Sections
+std::string task_file_owner(const json &p, const std::string &name)
 {
-    std::string structure;
-    Files bodies;
-};
-Sections sections(const std::string &source, const std::string &filename)
+    for (const auto &task : p["nodes"])
+        if (task["kind"] == "task")
+        {
+            const auto prefix = "main/tasks/" + task["symbol"].get<std::string>();
+            if (name == prefix + "_task.cpp" || name == prefix + "_task.hpp" ||
+                name == prefix + "_parameters.hpp")
+                return task["id"];
+        }
+    return "";
+}
+void preserve_sources(const json &p, Files &files)
 {
-    Sections out;
-    const bool editable =
-        filename.rfind("main/", 0) == 0 && fs::path(filename).extension() == ".cpp";
-    std::istringstream stream(source);
-    std::string line, current;
-    const std::regex marker("[ \\t]*// espresso:(begin|end) ([a-z]+-[0-9a-f]+)[ \\t]*");
-    while (std::getline(stream, line))
+    const auto saved = p.value("sourceFiles", json::object());
+    for (const auto &[name, entry] : saved.items())
     {
-        if (!line.empty() && line.back() == '\r')
-            line.pop_back();
-        std::smatch match;
-        if (editable && std::regex_match(line, match, marker))
+        const auto owner = entry.value("taskId", "");
+        const auto current_owner = task_file_owner(p, name);
+        if (!owner.empty())
         {
-            const std::string action = match[1], key = match[2];
-            if (action == "begin")
-            {
-                require(current.empty() && !out.bodies.count(key),
-                        filename + ": duplicate or nested section " + key);
-                current = key;
-                out.bodies[key] = "";
-            }
-            else
-            {
-                require(current == key, filename + ": unmatched section end " + key);
-                current.clear();
-            }
-            out.structure += line + "\n";
+            const auto task = std::find_if(p["nodes"].begin(), p["nodes"].end(),
+                                           [&](const json &n) { return n["id"] == owner; });
+            require(task != p["nodes"].end(), name + ": imported tasks cannot be deleted.");
+            require(owner == current_owner,
+                    name +
+                        ": changing an imported task's C++ symbol needs a manual source update. "
+                        "Restore its original symbol; the imported files are retained unchanged.");
         }
-        else
-        {
-            require(!editable || (line.find("espresso:begin") == std::string::npos &&
-                                  line.find("espresso:end") == std::string::npos),
-                    filename + ": damaged ESPresso section marker.");
-            if (current.empty())
-                out.structure += line + "\n";
-            else
-                out.bodies[current] += line + "\n";
-        }
+        require(files.count(name),
+                name + ": generated file was removed. The imported file is retained; "
+                       "resolve its dependencies before exporting.");
+        require(files.at(name) == entry["generated"] ||
+                    (!owner.empty() && fs::path(name).extension() == ".cpp"),
+                name +
+                    ": layout changes affect an imported interface or generated file you edited. "
+                    "Restore the compatible layout or reconcile the source before importing again. "
+                    "Your original files are retained.");
+        for (const auto &[generated_name, body] : files)
+            require(name == generated_name || lower(name) != lower(generated_name),
+                    "Imported source conflicts with generated path: " + name);
+        files[name] = entry["content"];
     }
-    require(current.empty(), filename + ": missing section end for " + current);
-    return out;
 }
-std::string source_structure(const std::string &source, const std::string &name)
-{
-    return sections(source, name).structure;
-}
-
 bool contains_code(const std::string &text)
 {
     std::istringstream lines(text);
@@ -141,42 +125,32 @@ json code_states(const json &p)
                     }
     return states;
 }
-void add_recovered_code(const json &p, Files &files)
-{
-    std::set<std::string> active;
-    for (const auto &[name, text] : files)
-        if (fs::path(name).extension() == ".cpp")
-            for (const auto &[key, body] : sections(text, name).bodies)
-                active.insert(key);
-    std::string recovered;
-    const auto code = p.value("code", json::object());
-    for (const auto &[key, value] : code.items())
-        if (!active.count(key) && contains_code(value))
-            recovered += "// Removed section: " + key + "\n" + value.get<std::string>() + "\n";
-    if (!recovered.empty())
-        files["espresso-recovered-code.txt"] = recovered;
-}
 json project_manifest(const json &p, const Files &files)
 {
+    auto pristine = p;
+    pristine.erase("sourceFiles");
+    pristine.erase("buildFiles");
+    const auto generated = generate(pristine);
     json managed = json::object();
+    const auto saved = p.value("sourceFiles", json::object());
     for (const auto &[name, text] : files)
     {
-        if (name == "espresso.layout.json" || name == "README.md" ||
-            name == "espresso-recovered-code.txt")
+        if (name == "espresso.layout.json")
             continue;
-        if (p.value("extraFiles", json::object()).contains(name))
-        {
+        if (p.value("extraFiles", json::object()).contains(name) || !generated.count(name))
             managed[name] = {{"preserved", true}};
-            continue;
+        else
+        {
+            managed[name] = {{"generated", saved.contains(name) ? saved[name]["generated"]
+                                                                : json(generated.at(name))}};
+            const auto owner = task_file_owner(p, name);
+            if (!owner.empty())
+                managed[name]["taskId"] = owner;
         }
-        const auto parsed = sections(text, name);
-        managed[name] = {{"structure", parsed.structure}, {"sections", json::array()}};
-        for (const auto &[key, body] : parsed.bodies)
-            managed[name]["sections"].push_back(key);
     }
     return {{"format", "espresso-project"},
-            {"version", 1},
-            {"generatorVersion", "0.7.0"},
+            {"version", 2},
+            {"generatorVersion", "0.8.0"},
             {"layout", p},
             {"files", managed}};
 }
@@ -184,28 +158,21 @@ json import_project(const fs::path &manifest)
 {
     auto doc = json::parse(read_file(manifest));
     require(doc.is_object() && doc.value("format", "") == "espresso-project" &&
-                doc.value("version", 0) == 1,
+                doc.value("version", 0) == 2,
             "Select an espresso.project.json exported by this version of ESPresso.");
     auto p = doc.at("layout");
     check_shape(p);
     require(doc.contains("files") && doc["files"].is_object() && doc["files"].size() <= 1000,
             "Invalid project file inventory.");
     const auto root = fs::canonical(manifest.parent_path());
-    auto code = p.value("code", json::object());
-    const auto expected_files = generate(p);
     auto pristine = p;
+    pristine.erase("sourceFiles");
     pristine.erase("buildFiles");
-    pristine.erase("sourceOverrides");
-    const auto build_baseline = generate(pristine).at("main/CMakeLists.txt");
-    Files defaults;
-    for (const auto &[name, text] : expected_files)
-        for (const auto &[key, body] : sections(text, name).bodies)
-            defaults[key] = body;
-    std::set<std::string> keys;
+    const auto expected_files = generate(pristine);
+    const auto saved = p.value("sourceFiles", json::object());
     const auto config_name = "main/" + config_path(p);
     std::string config_content;
-    json extras = json::object(), builds = json::object(),
-         overrides = p.value("sourceOverrides", json::object());
+    json extras = json::object(), builds = json::object(), sources = json::object();
     size_t total = 0;
     auto read_inside = [&](const std::string &name)
     {
@@ -242,11 +209,11 @@ json import_project(const fs::path &manifest)
         if (name == "CMakeLists.txt" || name == "main/CMakeLists.txt")
         {
             if (name == "main/CMakeLists.txt")
-                merge_build(text, expected_files.at(name));
+                check_build(text);
             builds[name] = text;
             continue;
         }
-        if (snapshot)
+        if (snapshot || name == "README.md")
         {
             require(!expected_files.count(name) || name.rfind("components/", 0) == 0 ||
                         name == "README.md" || name == ".gitignore" || name == "sdkconfig.defaults",
@@ -254,40 +221,34 @@ json import_project(const fs::path &manifest)
             extras[name] = base64_encode(text);
             continue;
         }
-        const auto parsed = sections(text, name);
-        const auto old_structure = descriptor.at("structure").get<std::string>();
-        if (parsed.structure != old_structure)
+        require(expected_files.count(name), "Unexpected generated file: " + name);
+        const auto baseline =
+            saved.contains(name) ? saved[name]["generated"] : json(expected_files.at(name));
+        require(descriptor.at("generated") == baseline,
+                "Project layout and generated file inventory disagree: " + name);
+        const auto owner = task_file_owner(p, name);
+        require(descriptor.value("taskId", "") == owner, "Invalid task file ownership: " + name);
+        const auto extension = fs::path(name).extension().string();
+        const bool editable = name.rfind("main/", 0) == 0 &&
+                              name.rfind("main/generated/", 0) != 0 &&
+                              (extension == ".cpp" || extension == ".hpp" || extension == ".h");
+        const bool task_file = !owner.empty() && name.find("_parameters.hpp") == std::string::npos;
+        if (editable && (task_file || text != baseline || saved.contains(name)))
         {
-            const auto extension = fs::path(name).extension().string();
-            require(name.rfind("main/", 0) == 0 &&
-                        (extension == ".cpp" || extension == ".hpp" || extension == ".h"),
-                    name + ": generated structure changed outside editable sections.");
-            overrides[name] = {{"content", text},
-                               {"structure", overrides.contains(name) ? overrides[name]["structure"]
-                                                                      : json(old_structure)}};
+            sources[name] = {{"content", text}, {"generated", baseline}};
+            if (!owner.empty())
+                sources[name]["taskId"] = owner;
         }
-        else if (overrides.contains(name))
-            overrides[name]["content"] = text;
-        const auto expected = descriptor.at("sections").get<std::set<std::string>>();
-        require(expected.size() == parsed.bodies.size(), name + ": missing editable section.");
-        for (const auto &[key, body] : parsed.bodies)
-        {
-            require(expected.count(key) && keys.insert(key).second,
-                    name + ": unexpected or duplicate section " + key);
-            if (code.contains(key) || !defaults.count(key) || defaults.at(key) != body)
-                code[key] = body;
-        }
+        else
+            require(text == expected_files.at(name),
+                    name + ": generated file changed. "
+                           "Keep custom code in your task files or separate source files.");
     }
     for (const auto &[name, text] : expected_files)
     {
-        if (name == "espresso.layout.json" || name == "README.md" ||
-            name == "espresso-recovered-code.txt" || name.rfind("components/", 0) == 0)
+        if (name == "espresso.layout.json" || name.rfind("components/", 0) == 0)
             continue;
         require(doc["files"].contains(name), "Project manifest is missing " + name);
-        if (name == config_name || name == "CMakeLists.txt" || name == "main/CMakeLists.txt")
-            continue;
-        require(sections(text, name).structure == doc["files"][name]["structure"],
-                "Project layout and generated structure disagree: " + name);
     }
     for (fs::recursive_directory_iterator it(root), end; it != end; ++it)
     {
@@ -301,17 +262,16 @@ json import_project(const fs::path &manifest)
             continue;
         }
         if (doc["files"].contains(name) || name == manifest.filename().generic_u8string() ||
-            name == "espresso.layout.json" || name == "espresso-recovered-code.txt")
+            name == "espresso.layout.json")
             continue;
         extras[name] = base64_encode(read_inside(name));
     }
     p["extraFiles"] = extras;
     p["buildFiles"] = builds;
-    p["buildBases"] = {{"main/CMakeLists.txt", build_baseline}};
-    p["sourceOverrides"] = overrides;
+    p["sourceFiles"] = sources;
     import_config(p, config_content);
-    p["code"] = code;
     normalize_project(p);
+    capture_import(p);
     check_shape(p);
     return p;
 }

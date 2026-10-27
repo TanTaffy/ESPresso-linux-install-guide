@@ -5,9 +5,11 @@ export function StructFields({
   shared,
   updateShared,
   types = [],
+  imported = false,
 }: {
   shared?: SharedStruct;
   types?: DataType[];
+  imported?: boolean;
   updateShared: (edit: (shared: SharedStruct) => void) => void;
 }) {
   if (!shared) return null;
@@ -28,6 +30,7 @@ export function StructFields({
         <FieldLabel label="Instance symbol">
           <input
             aria-label="Struct instance symbol"
+            disabled={imported}
             className="mono"
             value={shared.symbol}
             onChange={(e) =>
@@ -41,6 +44,7 @@ export function StructFields({
       <FieldLabel label="C++ type name">
         <input
           aria-label="Struct type name"
+          disabled={imported}
           className="mono"
           value={shared.typeName}
           onChange={(e) =>
@@ -53,6 +57,7 @@ export function StructFields({
       <FieldLabel label="Payload definition">
         <select
           aria-label="Payload definition"
+          disabled={imported}
           value={shared.payloadTypeId ?? ''}
           onChange={(e) =>
             updateShared((s) => {
@@ -78,15 +83,17 @@ export function StructFields({
           <div className="section-title">
             <h3>Fields</h3>
           </div>
-          <FieldTable
-            fields={shared.fields}
-            types={types}
-            onChange={(fields) =>
-              updateShared((s) => {
-                s.fields = fields;
-              })
-            }
-          />
+          <fieldset disabled={imported} className="plain-fieldset">
+            <FieldTable
+              fields={shared.fields}
+              types={types}
+              onChange={(fields) =>
+                updateShared((s) => {
+                  s.fields = fields;
+                })
+              }
+            />
+          </fieldset>
         </>
       )}
     </>

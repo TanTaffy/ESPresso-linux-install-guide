@@ -247,7 +247,7 @@ try {
   ).toBeChecked();
   await expect(
     page.getByRole('button', {
-      name: /Take sample Code placeholder · Code present/,
+      name: /Take sample Code placeholder · Base code/,
     }),
   ).toBeVisible();
   await tab('Canvas');

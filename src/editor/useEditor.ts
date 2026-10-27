@@ -16,6 +16,12 @@ import {
   type Task,
   type TaskTemplate,
 } from '../model';
+import {
+  importedNode,
+  importedStep,
+  lockedConnection,
+  importViolation,
+} from '../imported';
 import { captureTemplate, withNewline } from '../templates';
 import type { FlowNode, StepSelection, View } from './types';
 
@@ -174,6 +180,11 @@ export function useEditor() {
     if (!project) return;
     const next = structuredClone(project);
     edit(next);
+    const violation = importViolation(next);
+    if (violation) {
+      notify(violation);
+      return;
+    }
     setUndo((h) => [...h.slice(-79), project]);
     setRedo([]);
     setProject(next);
@@ -385,6 +396,10 @@ export function useEditor() {
   function removeNode(id: string) {
     const n = project?.nodes.find((n) => n.id === id);
     if (!n) return;
+    if (importedNode(project, id)) {
+      notify('Imported tasks and data cannot be deleted.');
+      return;
+    }
     change((p) => {
       p.nodes = p.nodes.filter((n) => n.id !== id);
       for (const t of p.nodes)
@@ -406,6 +421,8 @@ export function useEditor() {
     notify(`${n.name} deleted. Undo is available.`);
   }
   function addStep(phase: Phase, kind: Step['kind'] = 'placeholder') {
+    if (task && importedNode(project, task.id) && kind === 'placeholder')
+      return;
     const id = uid();
     const s: Step = {
       id,
@@ -423,6 +440,7 @@ export function useEditor() {
                   ? 'Read shared data'
                   : 'Publish shared data',
       note: '',
+      ...(task && importedNode(project, task.id) ? { requiresCode: true } : {}),
       ...(kind === 'notify'
         ? { taskId: tasks.find((t) => t.trigger === 'notification')?.id ?? '' }
         : kind !== 'placeholder'
@@ -452,7 +470,19 @@ export function useEditor() {
     if (!stepSelection) return;
     updateTask((t) => {
       const s = t[stepSelection.phase].find((s) => s.id === stepSelection.id);
-      if (s) edit(s);
+      if (s) {
+        const before = { ...s };
+        delete before.requiresCode;
+        edit(s);
+        const after = { ...s };
+        delete after.requiresCode;
+        if (
+          importedNode(project, t.id) &&
+          !importedStep(project, t.id, s.id) &&
+          JSON.stringify(before) !== JSON.stringify(after)
+        )
+          s.requiresCode = true;
+      }
     });
   }
   function moveStep(phase: Phase, id: string, offset: number) {
@@ -487,18 +517,27 @@ export function useEditor() {
       const existing = c.sourceHandle?.startsWith('step:')
         ? c.sourceHandle.slice(5)
         : null;
+      if (existing && importedStep(project, source.id, existing)) {
+        notify(
+          'Imported connectors are read-only. Use the task’s main output port to add another.',
+        );
+        return;
+      }
       updateNode(source.id, (n) => {
         if (n.kind !== 'task') return;
         const step = [...n.setup, ...n.loop].find(
           (s) => s.id === existing && s.kind === 'notify',
         );
-        if (step) step.taskId = target.id;
-        else
+        if (step) {
+          step.taskId = target.id;
+          if (importedNode(project, source.id)) step.requiresCode = true;
+        } else
           n.loop.push({
             id: uid(),
             kind: 'notify',
             name: `Notify ${target.name}`,
             note: '',
+            ...(importedNode(project, source.id) ? { requiresCode: true } : {}),
             taskId: target.id,
           });
       });
@@ -518,6 +557,12 @@ export function useEditor() {
             : 'read',
       handle = source.kind === 'task' ? c.sourceHandle : c.targetHandle;
     const existing = handle?.startsWith('step:') ? handle.slice(5) : null;
+    if (existing && importedStep(project, t.id, existing)) {
+      notify(
+        'Imported connectors are read-only. Use the task’s main input or output port to add another.',
+      );
+      return;
+    }
     if (existing) {
       updateNode(t.id, (n) => {
         if (n.kind === 'task')
@@ -528,6 +573,7 @@ export function useEditor() {
               delete step.taskId;
               step.structId = s.id;
               step.localName = s.symbol;
+              if (importedNode(project, t.id)) step.requiresCode = true;
             }
           }
       });
@@ -549,6 +595,7 @@ export function useEditor() {
       note: '',
       structId: s.id,
       localName: s.symbol,
+      ...(importedNode(project, t.id) ? { requiresCode: true } : {}),
       ...(kind === 'send' || kind === 'receive'
         ? { timeoutMs: 0, onFailure: 'return' as const }
         : {}),
@@ -565,6 +612,10 @@ export function useEditor() {
     );
   }
   function removeConnection(stepId: string) {
+    if (project && lockedConnection(project, stepId)) {
+      notify('Imported connections cannot be removed.');
+      return;
+    }
     if (stepId.startsWith('trigger:')) {
       const [, taskId, queueId] = stepId.split(':');
       updateNode(taskId, (n) => {
@@ -598,6 +649,13 @@ export function useEditor() {
         data: {
           node: n,
           showSteps,
+          imported: !!importedNode(project, n.id),
+          lockedSteps:
+            n.kind === 'task'
+              ? [...n.setup, ...n.loop]
+                  .filter((s) => importedStep(project, n.id, s.id))
+                  .map((s) => s.id)
+              : [],
           types: project.types ?? [],
           edit: editNode,
           step: editStep,
@@ -616,6 +674,7 @@ export function useEditor() {
         if (structs.some((s) => s.id === id))
           edges.push({
             id: `trigger:${t.id}:${id}`,
+            deletable: !importedNode(project, t.id),
             source: id,
             target: t.id,
             sourceHandle: 'read',
@@ -631,12 +690,15 @@ export function useEditor() {
             if (tasks.some((n) => n.id === s.taskId))
               edges.push({
                 id: s.id,
+                deletable: !lockedConnection(project!, s.id),
                 source: t.id,
                 target: s.taskId!,
                 sourceHandle: showSteps ? `step:${s.id}` : 'write-new',
                 targetHandle: 'read-new',
                 type: 'smoothstep',
-                label: 'notify',
+                label: s.requiresCode
+                  ? 'notify · Requires code update'
+                  : 'notify',
                 style: { stroke: '#a8815d' },
               });
             continue;
@@ -648,6 +710,7 @@ export function useEditor() {
             continue;
           edges.push({
             id: s.id,
+            deletable: !lockedConnection(project!, s.id),
             source:
               s.kind === 'write' || s.kind === 'send' ? t.id : s.structId!,
             target:
@@ -665,7 +728,7 @@ export function useEditor() {
                   : 'read-new'
                 : 'write',
             type: 'smoothstep',
-            label: s.kind,
+            label: s.requiresCode ? `${s.kind} · Requires code update` : s.kind,
             style: { stroke: '#698062', strokeWidth: 1.8 },
             labelStyle: { fill: '#55734e', fontSize: 11 },
             labelBgStyle: { fill: '#f8f3eb' },
@@ -818,6 +881,8 @@ export function useEditor() {
     graphNodes,
     graphEdges,
     nodeChanges,
+    lockedConnection: (id: string) =>
+      project ? lockedConnection(project, id) : false,
     exportProject,
     errors,
     warnings,

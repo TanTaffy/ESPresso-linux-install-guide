@@ -7,16 +7,26 @@ export function TaskSettings({
   compact = false,
   structs = [],
   template = false,
+  imported,
 }: {
   task?: Task;
   updateTask: (edit: (task: Task) => void) => void;
   compact?: boolean;
   structs?: SharedStruct[];
   template?: boolean;
+  imported?: Task;
 }) {
   if (!task) return null;
   return (
     <div className={`settings-fields ${compact ? 'compact' : ''}`}>
+      {imported && (
+        <p className="imported-notice">
+          <span className="imported-badge">Imported · Limited editing</span>
+          <br />
+          Code and existing flow are preserved. Names and config values remain
+          editable; add new input/output connections as needed.
+        </p>
+      )}
       <FieldLabel label="Task name">
         <input
           aria-label="Task name"
@@ -27,6 +37,7 @@ export function TaskSettings({
       <FieldLabel label="C++ symbol" hint="Used in namespace and file names">
         <input
           aria-label="Task C++ symbol"
+          disabled={!!imported}
           className="mono"
           value={task.symbol}
           onChange={(e) => updateTask((t) => (t.symbol = e.target.value))}
@@ -98,6 +109,7 @@ export function TaskSettings({
       <FieldLabel label="Loop trigger">
         <select
           aria-label="Loop trigger"
+          disabled={!!imported}
           value={task.trigger ?? 'periodic'}
           onChange={(e) =>
             updateTask((t) => {
@@ -120,6 +132,7 @@ export function TaskSettings({
         >
           <select
             aria-label="Trigger queue"
+            disabled={!!imported}
             value={task.queueId ?? ''}
             onChange={(e) =>
               updateTask((t) => {
@@ -147,6 +160,7 @@ export function TaskSettings({
               <label className="check-row" key={s.id}>
                 <input
                   aria-label={`Trigger on ${s.name}`}
+                  disabled={!!imported}
                   type="checkbox"
                   checked={task.queueIds?.includes(s.id) ?? false}
                   onChange={(e) =>
@@ -192,6 +206,11 @@ export function TaskSettings({
               <FieldLabel label="Name">
                 <input
                   aria-label={`Parameter name ${i}`}
+                  disabled={
+                    !!imported?.parameters?.some(
+                      (p) => p.name === parameter.name,
+                    )
+                  }
                   className="mono"
                   value={parameter.name}
                   onChange={(e) =>
@@ -204,6 +223,11 @@ export function TaskSettings({
               <FieldLabel label="C++ type">
                 <input
                   aria-label={`Parameter type ${i}`}
+                  disabled={
+                    !!imported?.parameters?.some(
+                      (p) => p.name === parameter.name,
+                    )
+                  }
                   className="mono"
                   value={parameter.type ?? 'auto'}
                   placeholder="uint32_t"
@@ -259,6 +283,9 @@ export function TaskSettings({
               type="button"
               className="text-button danger"
               aria-label={`Remove parameter ${parameter.name}`}
+              disabled={
+                !!imported?.parameters?.some((p) => p.name === parameter.name)
+              }
               onClick={() =>
                 updateTask((t) => {
                   t.parameters!.splice(i, 1);

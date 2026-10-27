@@ -66,19 +66,18 @@ void check_shape(const json &p)
     check_libraries(p);
     if (p.contains("code"))
     {
-        require(p["code"].is_object() && p["code"].size() <= 6000,
-                "Invalid implementation sections.");
+        require(p["code"].is_object() && p["code"].size() <= 6000, "Invalid template base code.");
         size_t total = 0;
         for (const auto &[key, value] : p["code"].items())
         {
             require(std::regex_match(key, std::regex("[a-z]+-[0-9a-f]+")) && value.is_string(),
-                    "Invalid implementation section.");
+                    "Invalid template base code key.");
             const auto text = value.get<std::string>();
             total += text.size();
             require(text.find('\0') == std::string::npos && (text.empty() || text.back() == '\n'),
                     "Invalid implementation text.");
         }
-        require(total <= 2 * 1024 * 1024, "Implementation sections exceed 2 MB.");
+        require(total <= 2 * 1024 * 1024, "Template base code exceeds 2 MB.");
     }
     std::set<std::string> ids;
     auto id = [&](const json &item)
@@ -336,6 +335,7 @@ json validate(const json &p)
 {
     check_shape(p);
     json out = validate_types(p);
+    for (const auto &issue : validate_imported(p)) out.push_back(issue);
     auto issue = [&](const std::string &severity, const std::string &message,
                      const std::string &node = "") {
         out.push_back({{"severity", severity}, {"message", message}, {"nodeId", node}});

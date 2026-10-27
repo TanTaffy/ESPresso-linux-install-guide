@@ -1,6 +1,6 @@
 {
   "name": "espresso-desktop",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "ESPresso: visual FreeRTOS layouts and ESP-IDF C++ skeletons",
   "author": "ESPresso",
   "license": "MIT",
@@ -13,7 +13,7 @@
     "build": "npm run native && npm run build:ui",
     "start": "node scripts/launch.mjs",
     "dev": "npm run build && npm start",
-    "test": "npm run native && node --test tests/backend.test.mjs tests/firmware.test.mjs tests/roundtrip.test.mjs tests/runtime-config.test.mjs",
+    "test": "npm run native && node --test tests/backend.test.mjs tests/firmware.test.mjs tests/roundtrip.test.mjs tests/runtime-config.test.mjs tests/imported.test.mjs",
     "test:e2e": "node tests/desktop.e2e.mjs && node tests/project.e2e.mjs && node tests/features.e2e.mjs",
     "package": "npm run build && node scripts/package.mjs",
     "format": "node scripts/format.mjs",

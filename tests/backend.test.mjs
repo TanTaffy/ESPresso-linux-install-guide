@@ -90,7 +90,7 @@ test('arrays, nested structs, enums and library payloads generate in dependency 
     /using PressureData = ::espresso::types::Envelope/,
   );
   assert.match(f['main/shared/pressure.hpp'], /is_trivially_copyable_v/);
-  assert.match(f['main/CMakeLists.txt'], /PRIV_REQUIRES Sensor/);
+  assert.match(f['main/generated/project.cmake'], /ESPRESSO_REQUIRES Sensor/);
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'espresso-types-'));
   const exported = request({ op: 'export', project: p, path: root });
   assert.equal(exported.ok, true, exported.error);
@@ -823,89 +823,61 @@ test('folder catalogs load user files, isolate bad entries and keep deleted defa
     true,
   );
 });
-function editSection(file, key, code) {
-  const text = fs.readFileSync(file, 'utf8');
-  const pattern = new RegExp(
-    `(// espresso:begin ${key}\\n)[\\s\\S]*?(?= *// espresso:end ${key})`,
-  );
-  assert.match(text, pattern);
-  fs.writeFileSync(
-    file,
-    text.replace(pattern, (_, begin) => begin + code),
-  );
-}
-test('project import preserves code by ID through rename, reorder, save and re-export', () => {
+test('project import preserves whole task files through config edits, save and repeated export', () => {
   const { project, folder, manifest } = exportedFixture();
-  const step = project.nodes[0].loop[0],
-    key = sectionKey('step', step.id);
-  const code =
-    '    pressure.raw_count = 42;\n    // User implementation, including blank lines.\n\n';
-  editSection(path.join(folder, 'main/tasks/adc_task.cpp'), key, code);
-  editSection(
-    path.join(folder, 'main/tasks/adc_task.cpp'),
-    sectionKey('state', 'task-adc'),
-    'static int samples = 0;\n',
-  );
+  const file = 'main/tasks/adc_task.cpp';
+  const original = fs.readFileSync(path.join(folder, file), 'utf8');
+  assert.doesNotMatch(original, /espresso:(begin|end)/);
+  const source =
+    original.replace(
+      '    // TODO: Read parameters::PRESSURE_CHANNEL into pressure.raw_count.',
+      '    pressure.raw_count = 42;',
+    ) + '\nnamespace custom { int samples = 3; }';
+  fs.writeFileSync(path.join(folder, file), source);
   const imported = request({ op: 'import-project', path: manifest });
   assert.equal(imported.ok, true, imported.error);
   const p = imported.result.project;
-  assert.equal(p.code[key], code);
-  p.nodes[0].symbol = 'sensor';
-  p.nodes[0].loop.reverse();
-  p.nodes[0].loop.find((s) => s.id === step.id).name = 'Renamed implementation';
+  assert.equal(p.sourceFiles[file].content, source);
+  p.nodes[0].name = 'Pressure sensor';
+  p.nodes[0].periodMs = 25;
   const preview = request({ op: 'preview', project: p }).result;
-  assert.equal(preview.stepStates[step.id], 'Code present');
-  assert.ok(preview.files['main/tasks/sensor_task.cpp'].includes(code));
-  assert.match(
-    preview.files['main/tasks/sensor_task.cpp'],
-    /static int samples = 0/,
-  );
+  assert.equal(preview.valid, true);
+  assert.equal(preview.files[file], source);
   const savePath = path.join(
     os.tmpdir(),
     `espresso-preserved-${Date.now()}.espresso.json`,
   );
   assert.equal(request({ op: 'save', project: p, path: savePath }).ok, true);
-  assert.equal(
-    request({ op: 'load', path: savePath }).result.project.code[key],
-    code,
-  );
-  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'espresso-reexport-'));
-  const output = request({ op: 'export', project: p, path: parent });
+  const reopened = request({ op: 'load', path: savePath }).result.project;
+  assert.equal(reopened.sourceFiles[file].content, source);
+  const output = request({
+    op: 'export',
+    project: reopened,
+    path: fs.mkdtempSync(path.join(os.tmpdir(), 'espresso-reexport-')),
+  });
   assert.equal(output.ok, true, output.error);
+  const again = request({
+    op: 'import-project',
+    path: path.join(output.result.path, 'espresso.project.json'),
+  });
+  assert.equal(again.ok, true, again.error);
+  assert.equal(again.result.project.sourceFiles[file].content, source);
   assert.equal(
-    request({
-      op: 'import-project',
-      path: path.join(output.result.path, 'espresso.project.json'),
-    }).result.project.code[key],
-    code,
-  );
-  p.nodes[0].loop = p.nodes[0].loop.filter((s) => s.id !== step.id);
-  const removed = request({ op: 'preview', project: p }).result;
-  assert.ok(removed.files['espresso-recovered-code.txt'].includes(code));
-  assert.ok(
-    removed.diagnostics.some((d) => d.message.includes('Removed sections')),
+    request({ op: 'preview', project: again.result.project }).result.files[
+      file
+    ],
+    source,
   );
 });
-test('project import rejects structural changes, missing markers/files and unsafe inventories', () => {
-  for (const change of ['marker', 'missing', 'path', 'layout']) {
+
+test('project import rejects missing files, unsafe inventories and inconsistent layout metadata', () => {
+  for (const change of ['missing', 'path', 'layout']) {
     const { folder, manifest } = exportedFixture();
-    const file = path.join(folder, 'main/tasks/adc_task.cpp');
-    if (change === 'structure')
-      fs.appendFileSync(file, 'void unmanaged() {}\n');
-    if (change === 'marker')
-      fs.writeFileSync(
-        file,
-        fs
-          .readFileSync(file, 'utf8')
-          .replace('espresso:end', 'espresso:broken'),
-      );
-    if (change === 'missing') fs.unlinkSync(file);
-    if (change === 'extra')
-      fs.writeFileSync(path.join(folder, 'extra.cpp'), 'int unmanaged;');
+    if (change === 'missing')
+      fs.unlinkSync(path.join(folder, 'main/tasks/adc_task.cpp'));
     if (change === 'path' || change === 'layout') {
       const doc = JSON.parse(fs.readFileSync(manifest, 'utf8'));
-      if (change === 'path')
-        doc.files['../escape.cpp'] = { structure: '', sections: [] };
+      if (change === 'path') doc.files['../escape.cpp'] = { generated: '' };
       else doc.layout.nodes[0].symbol = 'missing_task';
       fs.writeFileSync(manifest, JSON.stringify(doc));
     }
@@ -915,19 +887,22 @@ test('project import rejects structural changes, missing markers/files and unsaf
   }
 });
 
-test('unedited imported placeholders keep generating updated notes', () => {
-  const { manifest } = exportedFixture();
-  const imported = request({ op: 'import-project', path: manifest });
-  assert.equal(imported.ok, true, imported.error);
-  const p = imported.result.project;
+test('imported steps reject note edits before export', () => {
+  const { folder, manifest } = exportedFixture();
+  const original = fs.readFileSync(
+    path.join(folder, 'main/tasks/adc_task.cpp'),
+    'utf8',
+  );
+  const p = request({ op: 'import-project', path: manifest }).result.project;
   p.nodes[0].loop[0].note = 'Updated instruction after import';
   const preview = request({ op: 'preview', project: p }).result;
-  assert.equal(preview.stepStates[p.nodes[0].loop[0].id], 'Empty');
-  assert.match(
-    preview.files['main/tasks/adc_task.cpp'],
-    /TODO: Updated instruction after import/,
+  assert.equal(preview.valid, false);
+  assert.equal(p.sourceFiles['main/tasks/adc_task.cpp'].content, original);
+  assert.ok(
+    preview.diagnostics.some((d) => d.message.includes('Imported steps')),
   );
 });
+
 test('local libraries export unchanged source, headers and dependencies only for assigned tasks', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'MSM_LiveData-'));
   fs.mkdirSync(path.join(dir, 'include'));
@@ -967,7 +942,10 @@ test('local libraries export unchanged source, headers and dependencies only for
     files['components/MSM_LiveData/CMakeLists.txt'],
     /REQUIRES freertos/,
   );
-  assert.match(files['main/CMakeLists.txt'], /PRIV_REQUIRES MSM_LiveData/);
+  assert.match(
+    files['main/generated/project.cmake'],
+    /ESPRESSO_REQUIRES MSM_LiveData/,
+  );
   const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'espresso-lib-export-'));
   const output = request({ op: 'export', project: p, path: parent });
   assert.equal(output.ok, true, output.error);

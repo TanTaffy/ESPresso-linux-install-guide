@@ -12,6 +12,7 @@ export type Step = {
   timeoutLiteral?: string;
   timeoutSetting?: string;
   onFailure?: 'continue' | 'return' | 'assert';
+  requiresCode?: boolean;
 };
 export type Task = {
   id: string;
@@ -93,9 +94,18 @@ export type Project = {
   configFile?: ConfigFile;
   extraFiles?: Record<string, string>;
   buildFiles?: Record<string, string>;
-  buildBases?: Record<string, string>;
-  sourceOverrides?: Record<string, { content: string; structure: string }>;
+  sourceFiles?: Record<
+    string,
+    { content: string; generated: string; taskId?: string }
+  >;
   libraryLocks?: Record<string, unknown>;
+  imported?: {
+    target: Project['target'];
+    configPath: string;
+    nodes: LayoutNode[];
+    types: DataType[];
+    libraries: Library[];
+  };
 };
 export type Library = {
   id: string;
@@ -129,6 +139,7 @@ export type Preview = {
   configContent?: string;
   stepStates?: Record<string, string>;
   stepCode?: Record<string, string>;
+  connectionCode?: Record<string, string>;
 };
 export type Boot = {
   project: Project;

@@ -39,7 +39,7 @@ void check_templates(const json &templates)
         normalize_project(p);
         const auto diagnostics = validate(p);
         require(!has_errors(diagnostics), "Fix template settings: " + diagnostics.dump());
-        generate(p); // Check section markers and generated code limits before storing it.
+        generate(p); // Validate the template scaffold before storing it.
     }
 }
 

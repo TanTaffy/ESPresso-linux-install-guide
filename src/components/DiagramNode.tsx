@@ -79,6 +79,9 @@ export function DiagramNode({ id, data, selected }: NodeProps<FlowNode>) {
             <ChevronRight size={16} />
           </button>
         </header>
+        {data.imported && (
+          <span className="imported-badge">Imported · Fixed definition</span>
+        )}
         <h3>{n.typeName || 'Unnamed struct'}</h3>
         <div className="node-symbol">shared::{n.symbol}</div>
         <div className="node-fields">
@@ -144,6 +147,14 @@ export function DiagramNode({ id, data, selected }: NodeProps<FlowNode>) {
           <ChevronRight size={16} />
         </button>
       </header>
+      {data.imported && (
+        <span
+          className="imported-badge"
+          title="Preserved source. Existing flow is read-only; new input/output connectors are allowed."
+        >
+          Imported · Limited editing
+        </span>
+      )}
       <h3>{n.name || 'Unnamed task'}</h3>
       <div className="node-symbol">
         {n.trigger === 'queues'
@@ -169,6 +180,7 @@ export function DiagramNode({ id, data, selected }: NodeProps<FlowNode>) {
                     type="target"
                     position={Position.Left}
                     id={`step:${s.id}`}
+                    isConnectable={!data.lockedSteps.includes(s.id)}
                     className="data-handle"
                   />
                 )}
@@ -183,7 +195,14 @@ export function DiagramNode({ id, data, selected }: NodeProps<FlowNode>) {
                   ) : (
                     <Upload size={13} />
                   )}
-                  <span>{s.name || 'Unnamed step'}</span>
+                  <span>
+                    {s.name || 'Unnamed step'}
+                    {s.requiresCode && (
+                      <small className="pending-badge">
+                        Requires code update
+                      </small>
+                    )}
+                  </span>
                 </button>
                 {(s.kind === 'write' ||
                   s.kind === 'send' ||
@@ -192,6 +211,7 @@ export function DiagramNode({ id, data, selected }: NodeProps<FlowNode>) {
                     type="source"
                     position={Position.Right}
                     id={`step:${s.id}`}
+                    isConnectable={!data.lockedSteps.includes(s.id)}
                     className="data-handle"
                   />
                 )}
