@@ -43,6 +43,12 @@ Task implementation and configuration headers stay in your usual editor. ESPress
 
 Exports create a new project folder and never overwrite existing handwritten code. Startup always opens a blank **New layout**; saved layouts and the pressure example are explicit choices. The pressure example includes a Johnson-derived `config/Config.hpp` for ADC A and CAN, with ADC timing and task settings using its constants. Its sample rate is 10 Hz (100 ms).
 
+## Themes
+
+Choose **Latte**, **Espresso**, **Midnight**, **Paper** or **Stinger** beside undo/redo. Stinger uses MSM-inspired purple and yellow on dark panels. Use the palette button to create a custom theme with five colours: background, panels, text, accent and shared data. Other shades are derived automatically, with a live preview and a text-contrast hint. Save a named theme, edit it later or delete it. Cancel restores the previous appearance.
+
+Themes are saved as app preferences on this computer, separately from layouts and exports.
+
 ## Import and preserve code
 
 Exports include `espresso.project.json`. Write ordinary C++ in `main/tasks/*_task.cpp` and its header, then use **Import project** to select that manifest. Task code has no special comment fences or encoded IDs. ESPresso preserves imported task source and headers exactly as written, including formatting, helpers, includes and comments.

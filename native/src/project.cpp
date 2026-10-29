@@ -150,7 +150,7 @@ json project_manifest(const json &p, const Files &files)
     }
     return {{"format", "espresso-project"},
             {"version", 2},
-            {"generatorVersion", "0.8.0"},
+            {"generatorVersion", "1.0.0"},
             {"layout", p},
             {"files", managed}};
 }

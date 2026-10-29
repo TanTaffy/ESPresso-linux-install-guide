@@ -1,6 +1,25 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import { parseAppearance, defaultAppearance } from '../src/themes';
+const initialAppearance = (() => {
+  try {
+    return parseAppearance(
+      JSON.parse(
+        decodeURIComponent(
+          process.argv
+            .find((arg) => arg.startsWith('--espresso-appearance='))
+            ?.slice('--espresso-appearance='.length) ?? '',
+        ),
+      ),
+    );
+  } catch {
+    return defaultAppearance;
+  }
+})();
 import type { DesktopApi } from '../src/model';
 const api: DesktopApi = {
+  initialAppearance,
+  setAppearance: (appearance) =>
+    ipcRenderer.invoke('set-appearance', appearance),
   importConfig: (project) => ipcRenderer.invoke('import-config', project),
   boot: () => ipcRenderer.invoke('boot'),
   preview: (project) => ipcRenderer.invoke('preview', project),

@@ -1,4 +1,13 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme } from 'electron';
+import { readFileSync } from 'node:fs';
+import { mkdir, writeFile } from 'node:fs/promises';
+import {
+  getTheme,
+  getScheme,
+  parseAppearance,
+  defaultAppearance,
+  validAppearance,
+} from '../src/themes';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type {
@@ -93,6 +102,19 @@ function register(name: string, fn: (...args: any[]) => unknown) {
   });
 }
 app.whenReady().then(() => {
+  const preferencesPath = path.join(app.getPath('userData'), 'appearance.json');
+  let appearance = defaultAppearance;
+  try {
+    appearance = parseAppearance(
+      JSON.parse(readFileSync(preferencesPath, 'utf8')),
+    );
+  } catch {
+    /* First launch or unreadable preferences use Latte. */
+  }
+  const theme = getTheme(appearance);
+  nativeTheme.themeSource = getScheme(theme);
+  let themeWrites: Promise<void> = Promise.resolve();
+
   catalogsReady = Promise.all(
     (['templates', 'libraries'] as const).map((kind) =>
       native({
@@ -111,7 +133,7 @@ app.whenReady().then(() => {
     minWidth: 1050,
     minHeight: 720,
     show: false,
-    backgroundColor: '#f8f3eb',
+    backgroundColor: theme.palette.background,
     title: 'ESPresso',
     icon: app.isPackaged
       ? path.join(process.resourcesPath, 'branding/espresso-mark.png')
@@ -122,9 +144,37 @@ app.whenReady().then(() => {
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,
+      additionalArguments: [
+        `--espresso-appearance=${encodeURIComponent(JSON.stringify(appearance))}`,
+      ],
     },
   });
   window.removeMenu();
+  register('set-appearance', (value: unknown) => {
+    if (!validAppearance(value)) throw new Error('Invalid theme settings.');
+    const preferences = {
+      selected: value.selected,
+      customThemes: value.customThemes.map((t) => ({
+        id: t.id,
+        name: t.name.trim(),
+        palette: t.palette,
+      })),
+    };
+    themeWrites = themeWrites
+      .catch(() => {})
+      .then(async () => {
+        await mkdir(app.getPath('userData'), { recursive: true });
+        await writeFile(
+          preferencesPath,
+          JSON.stringify(preferences) + '\n',
+          'utf8',
+        );
+        const selected = getTheme(preferences);
+        nativeTheme.themeSource = getScheme(selected);
+        window.setBackgroundColor(selected.palette.background);
+      });
+    return themeWrites;
+  });
   register('boot', async () => {
     const r = await newProject();
     currentPath = null;

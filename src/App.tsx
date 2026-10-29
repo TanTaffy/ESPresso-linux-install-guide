@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { importedNode, lockedConnection } from './imported';
 import type { Task } from './model';
+import { ThemeSelector } from './components/ThemeSelector';
 import { nodeTypes } from './components/DiagramNode';
 import { TaskSettings } from './components/TaskSettings';
 import type { FlowNode } from './editor/types';
@@ -181,6 +182,7 @@ export default function App() {
           </button>
         ))}
         <div className="history-actions">
+          <ThemeSelector />
           <button
             className="icon-button"
             disabled={!undo.length}
@@ -446,8 +448,8 @@ export default function App() {
                   nodeColor={(n) =>
                     project.nodes.find((item) => item.id === n.id)?.kind ===
                     'struct'
-                      ? '#b4c2a8'
-                      : '#c8aa8e'
+                      ? 'var(--minimap-data)'
+                      : 'var(--minimap-task)'
                   }
                 />
               </ReactFlow>

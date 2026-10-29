@@ -1,3 +1,4 @@
+import type { Appearance } from './themes';
 export type Position = { x: number; y: number };
 export type Step = {
   id: string;
@@ -153,6 +154,8 @@ export type ExportResult = {
 } | null;
 export type Phase = 'setup' | 'loop';
 export interface DesktopApi {
+  initialAppearance: Appearance;
+  setAppearance(appearance: Appearance): Promise<void>;
   boot(): Promise<Boot>;
   preview(project: Project): Promise<Preview>;
   draft(project: Project, dirty: boolean): Promise<void>;

@@ -681,7 +681,7 @@ export function useEditor() {
             targetHandle: 'read-new',
             type: 'smoothstep',
             label: 'wake + receive',
-            style: { stroke: '#698062', strokeDasharray: '5 3' },
+            style: { stroke: 'var(--data)', strokeDasharray: '5 3' },
           });
     for (const t of tasks)
       for (const phase of ['setup', 'loop'] as Phase[])
@@ -699,7 +699,7 @@ export function useEditor() {
                 label: s.requiresCode
                   ? 'notify · Requires code update'
                   : 'notify',
-                style: { stroke: '#a8815d' },
+                style: { stroke: 'var(--accent)' },
               });
             continue;
           }
@@ -729,9 +729,9 @@ export function useEditor() {
                 : 'write',
             type: 'smoothstep',
             label: s.requiresCode ? `${s.kind} · Requires code update` : s.kind,
-            style: { stroke: '#698062', strokeWidth: 1.8 },
-            labelStyle: { fill: '#55734e', fontSize: 11 },
-            labelBgStyle: { fill: '#f8f3eb' },
+            style: { stroke: 'var(--data)', strokeWidth: 1.8 },
+            labelStyle: { fill: 'var(--data-text)', fontSize: 11 },
+            labelBgStyle: { fill: 'var(--canvas)' },
             interactionWidth: 22,
           });
         }
