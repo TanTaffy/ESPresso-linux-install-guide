@@ -180,6 +180,15 @@ Files generate(const json &p, json *diagnostics)
         if (t.value("trigger", "periodic") == "queues")
             task_header += "#include <variant>\n";
         task_header += "\nnamespace espresso::tasks::" + sym + " {\n";
+        std::set<std::string> task_types;
+        for (const auto &id : trigger_ids(t))
+        {
+            const std::string tn = by_id.at(id)["typeName"];
+            if (task_types.insert(tn).second)
+                task_header += "using ::espresso::data::" + tn + ";\n";
+        }
+        if (!task_types.empty())
+            task_header += "\n";
         if (t.value("trigger", "periodic") == "queues")
         {
             std::string variants;
@@ -187,8 +196,7 @@ Files generate(const json &p, json *diagnostics)
             {
                 const auto &q = by_id.at(id);
                 const std::string qs = q["symbol"];
-                task_header += "struct " + qs +
-                               "Event { ::espresso::data::" + q["typeName"].get<std::string>() +
+                task_header += "struct " + qs + "Event { " + q["typeName"].get<std::string>() +
                                " value; };\n";
                 variants += (variants.empty() ? "" : ", ") + qs + "Event";
             }
@@ -217,6 +225,20 @@ Files generate(const json &p, json *diagnostics)
         source += base_code(p, region_key("includes", t["id"]), "");
         source += base_code(p, region_key("helpers", t["id"]), "");
         source += "\nnamespace espresso::tasks::" + sym + " {\n";
+        bool added_types = false;
+        for (const auto *phase : {"setup", "loop"})
+            for (const auto &step : t[phase])
+                if (step["kind"] != "placeholder" && step["kind"] != "notify")
+                {
+                    const std::string tn = by_id.at(step["structId"])["typeName"];
+                    if (task_types.insert(tn).second)
+                    {
+                        source += "using ::espresso::data::" + tn + ";\n";
+                        added_types = true;
+                    }
+                }
+        if (added_types)
+            source += "\n";
         source += base_code(p, region_key("state", t["id"]), "");
         for (const auto *phase : {"setup", "loop"})
         {
@@ -230,7 +252,7 @@ Files generate(const json &p, json *diagnostics)
                 {
                     const std::string local = step["localName"];
                     if (locals.insert(local).second)
-                        source += "    [[maybe_unused]] ::espresso::data::" +
+                        source += "    [[maybe_unused]] " +
                                   by_id.at(step["structId"]).at("typeName").get<std::string>() +
                                   " " + local + "{};\n";
                 }

@@ -9,8 +9,7 @@ std::string loop_parameters(const json &t, const std::map<std::string, json> &da
         return "const Event& event";
     if (t.value("trigger", "periodic") != "queue")
         return "";
-    return "const ::espresso::data::" + data.at(t.at("queueId")).at("typeName").get<std::string>() +
-           "& event";
+    return "const " + data.at(t.at("queueId")).at("typeName").get<std::string>() + "& event";
 }
 
 Files queue_files(const json &s, const json &project)

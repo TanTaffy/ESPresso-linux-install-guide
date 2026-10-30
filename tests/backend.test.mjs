@@ -186,7 +186,11 @@ test('pressure example generates mutex helpers, setup/loop files and timed wrapp
   assert.equal(r.result.valid, true);
   assert.deepEqual(r.result.diagnostics, []);
   const f = r.result.files;
-  assert.match(f['main/tasks/adc_task.cpp'], /data::PressureData pressure\{\}/);
+  assert.match(
+    f['main/tasks/adc_task.cpp'],
+    /using ::espresso::data::PressureData;/,
+  );
+  assert.match(f['main/tasks/adc_task.cpp'], /\]\] PressureData pressure\{\}/);
   assert.match(
     f['main/tasks/adc_task.cpp'],
     /shared::write_pressure\(pressure\)/,
@@ -514,7 +518,7 @@ test('typed queues consume messages and queue-triggered loops receive the waking
   );
   assert.match(
     files['main/tasks/can_task.hpp'],
-    /loop\(const ::espresso::data::PressureData& event\)/,
+    /using ::espresso::data::PressureData;[\s\S]*loop\(const PressureData& event\)/,
   );
   assert.match(
     files['main/generated/task_runtime.cpp'],
