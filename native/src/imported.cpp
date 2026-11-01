@@ -150,16 +150,18 @@ std::string connection_code(const json &p, const json &task, const json &step,
             if (kind == "write")
                 return result + "// Fill in " + local + ".\nespresso::shared::write_" + sym + "(" +
                        local + ");\n";
-            const auto setting =
-                "::" + config_namespace(task) + "::" + timeout_setting(task, phase, step);
-            result = "#include \"generated/project_headers.hpp\"\n" + result;
-            result += "const auto timeout_ms = static_cast<int64_t>(" + setting + ");\n";
-            result += "const auto timeout = timeout_ms == -1 ? portMAX_DELAY : "
-                      "pdMS_TO_TICKS(timeout_ms);\n";
-            if (kind == "send")
-                result += "// Fill in " + local + ".\n";
-            return result + "if (!espresso::shared::" + kind + "_" + sym + "(" + local +
-                   ", timeout))\n{\n    // Handle the failed " + kind + ".\n}\n";
+            const auto function = "::espresso::tasks::" + task["symbol"].get<std::string>() +
+                                  "::" + queue_step_function(p, task, step);
+            result = "#include \"tasks/" + task["symbol"].get<std::string>() +
+                     "_parameters.hpp\"\n\n// Add inside " + phase + "().\n";
+            if (kind == "receive")
+                return result + "if (const auto " + local + " = " + function +
+                       "())\n{\n    // Use *" + local +
+                       ": the oldest message was removed from the queue.\n}\nelse\n{\n    "
+                       "// No message arrived before the configured timeout.\n}\n";
+            return result + "espresso::data::" + data["typeName"].get<std::string>() + " " + local +
+                   "{};\n// Fill in " + local + ".\nif (!" + function + "(" + local +
+                   "))\n{\n    // Queue stayed full until the configured timeout.\n}\n";
         }
     return "";
 }

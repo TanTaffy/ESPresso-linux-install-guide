@@ -1,11 +1,67 @@
 #include "espresso/core.hpp"
 #include <algorithm>
+#include <array>
+#include <cstdint>
 #include <set>
 #include <sstream>
 #include <vector>
 
 namespace espresso
 {
+namespace
+{
+constexpr std::array<const char *, 12> coffee_puns = {
+    "This code tastes like coffee!",
+    "May your coffee be strong and your latency low.",
+    "Grounds for a great project.",
+    "Brewed to run",
+    "A latte tasks, only 1 chip",
+    "Bean there, built that.",
+    "A fresh pot of parallel problems",
+    "Every task deserves a coffee break.",
+    "This project has bean brewing.",
+    "Bean busy making tasks.",
+    "A little chip with a latte potential.",
+    "Wake up and smell the semaphores (and coffee)"};
+
+std::string task_pun(const std::string &id)
+{
+    // Task IDs are random UUIDs. A stable hash keeps their selection unchanged
+    // across preview, export and import, including manifest baseline generation.
+    uint64_t hash = 14695981039346656037ULL;
+    for (unsigned char c : id)
+        hash = (hash ^ c) * 1099511628211ULL;
+    return coffee_puns[hash % coffee_puns.size()];
+}
+
+void add_skeleton_headers(const json &p, Files &files)
+{
+    const auto builds = p.value("buildFiles", json::object());
+    for (auto &[name, text] : files)
+    {
+        // Keep third-party sources and handwritten configuration/build files verbatim.
+        if (name.rfind("components/", 0) == 0 || builds.contains(name) ||
+            (name == "main/" + config_path(p) &&
+             !p.value("configFile", json::object()).value("content", "").empty()))
+            continue;
+        const auto extension = fs::path(name).extension().string();
+        if (extension == ".cpp" || extension == ".hpp" || extension == ".h")
+        {
+            std::string header;
+            const auto owner = task_file_owner(p, name);
+            if (!owner.empty() && extension == ".cpp")
+                header = "//" + task_pun(owner) + "\n";
+            text = header + "//" + skeleton_credit + "\n\n" + text;
+        }
+        else if (fs::path(name).filename() == "CMakeLists.txt" || extension == ".cmake" ||
+                 name == "sdkconfig.defaults" || name == ".gitignore")
+            text = "#" + std::string(skeleton_credit) + "\n\n" + text;
+        else if (extension == ".md")
+            text = "<!--" + std::string(skeleton_credit) + "-->\n\n" + text;
+    }
+}
+} // namespace
+
 std::string cpp_literal(const std::string &s) { return json(s).dump(-1, ' ', false); }
 std::string comment(const std::string &s)
 {
@@ -196,8 +252,8 @@ Files generate(const json &p, json *diagnostics)
             {
                 const auto &q = by_id.at(id);
                 const std::string qs = q["symbol"];
-                task_header += "struct " + qs + "Event { " + q["typeName"].get<std::string>() +
-                               " value; };\n";
+                task_header +=
+                    "struct " + qs + "Event { " + q["typeName"].get<std::string>() + " value; };\n";
                 variants += (variants.empty() ? "" : ", ") + qs + "Event";
             }
             task_header += "using Event = std::variant<" + variants + ">;\n";
@@ -226,18 +282,30 @@ Files generate(const json &p, json *diagnostics)
         source += base_code(p, region_key("helpers", t["id"]), "");
         source += "\nnamespace espresso::tasks::" + sym + " {\n";
         bool added_types = false;
+        std::set<std::string> task_functions;
         for (const auto *phase : {"setup", "loop"})
             for (const auto &step : t[phase])
                 if (step["kind"] != "placeholder" && step["kind"] != "notify")
                 {
-                    const std::string tn = by_id.at(step["structId"])["typeName"];
+                    const auto &data = by_id.at(step["structId"]);
+                    const std::string tn = data["typeName"], ss = data["symbol"];
                     if (task_types.insert(tn).second)
                     {
                         source += "using ::espresso::data::" + tn + ";\n";
                         added_types = true;
                     }
+                    if (step["kind"] == "read" || step["kind"] == "write")
+                        task_functions.insert(
+                            "::espresso::shared::" + step["kind"].get<std::string>() + "_" + ss);
                 }
-        if (added_types)
+                else if (step["kind"] == "notify")
+                    for (const auto &target : tasks)
+                        if (target["id"] == step["taskId"])
+                            task_functions.insert("::espresso::generated::notify_" +
+                                                  target["symbol"].get<std::string>());
+        for (const auto &function : task_functions)
+            source += "using " + function + ";\n";
+        if (added_types || !task_functions.empty())
             source += "\n";
         source += base_code(p, region_key("state", t["id"]), "");
         for (const auto *phase : {"setup", "loop"})
@@ -284,8 +352,7 @@ Files generate(const json &p, json *diagnostics)
                 {
                     for (const auto &target : tasks)
                         if (target["id"] == step["taskId"])
-                            source += "    ::espresso::generated::notify_" +
-                                      target["symbol"].get<std::string>() + "();\n";
+                            source += "    notify_" + target["symbol"].get<std::string>() + "();\n";
                 }
                 else
                 {
@@ -293,32 +360,44 @@ Files generate(const json &p, json *diagnostics)
                                       local = step["localName"];
                     if (kind == "send" || kind == "receive")
                     {
-                        const auto timeout_ms =
-                            "::" + config_namespace(t) + "::" + timeout_setting(t, phase, step);
-                        const auto signed_timeout = "static_cast<int64_t>(" + timeout_ms + ")";
-                        source += "    static_assert(" + signed_timeout + " >= -1 && " +
-                                  signed_timeout +
-                                  " <= 3600000, \"Timeout must be -1 or 0-3600000 ms\");\n";
-                        const auto timeout = "(" + signed_timeout +
-                                             " == -1 ? portMAX_DELAY : pdMS_TO_TICKS(" +
-                                             timeout_ms + "))";
-                        const auto call = "::espresso::shared::" + kind + "_" + ss + "(" + local +
-                                          ", " + timeout + ")";
+                        const auto function = queue_step_function(p, t, step);
                         const auto failure = step.value("onFailure", "return");
-                        if (failure == "return")
-                            source += "    if (!" + call + ") return;\n";
-                        else if (failure == "assert")
-                            source += "    if (!" + call + ") { configASSERT(false); }\n";
+                        if (kind == "receive")
+                        {
+                            std::string received = "received";
+                            while (locals.count(received))
+                                received += "_message";
+                            source +=
+                                "    // Take the oldest waiting message; no value means timeout.\n";
+                            source += "    if (const auto " + received + " = " + function + "())\n";
+                            source += "        " + local + " = *" + received + ";\n";
+                            if (failure == "return")
+                                source += "    else\n        return;\n";
+                            else if (failure == "assert")
+                                source += "    else\n        configASSERT(false);\n";
+                            else
+                                source += "    // On timeout, keep the previous local value and "
+                                          "continue.\n";
+                        }
                         else
-                            source += "    (void)" + call +
-                                      "; // Continue on failure; receive leaves the local value "
-                                      "unchanged.\n";
+                        {
+                            const auto call = function + "(" + local + ")";
+                            source += by_id.at(step["structId"]).value("delivery", "snapshot") ==
+                                              "mailbox"
+                                          ? "    // Replace the unread mailbox message.\n"
+                                          : "    // Add this message to the queue.\n";
+                            if (failure == "return")
+                                source += "    if (!" + call + ") return;\n";
+                            else if (failure == "assert")
+                                source += "    if (!" + call + ") { configASSERT(false); }\n";
+                            else
+                                source +=
+                                    "    (void)" + call + "; // Drop the message on timeout.\n";
+                        }
                     }
                     else
-                        source +=
-                            kind == "read"
-                                ? "    " + local + " = ::espresso::shared::read_" + ss + "();\n"
-                                : "    ::espresso::shared::write_" + ss + "(" + local + ");\n";
+                        source += kind == "read" ? "    " + local + " = read_" + ss + "();\n"
+                                                 : "    write_" + ss + "(" + local + ");\n";
                 }
                 source += "\n";
             }
@@ -327,7 +406,9 @@ Files generate(const json &p, json *diagnostics)
         source += "}\n";
         files["main/tasks/" + sym + "_task.cpp"] = source;
     }
-    files["espresso.layout.json"] = p.dump(2) + "\n";
+    auto layout = p;
+    layout["generatorCredit"] = skeleton_credit;
+    files["espresso.layout.json"] = layout.dump(2) + "\n";
     files["README.md"] =
         "# " + p["name"].get<std::string>() +
         "\n\nGenerated with ESPresso for ESP-IDF 5.5 or newer.\n\n1. Open this folder in your "
@@ -390,6 +471,7 @@ Files generate(const json &p, json *diagnostics)
                         }
         files["connection-updates.md"] = guide;
     }
+    add_skeleton_headers(p, files);
     preserve_sources(p, files);
     return files;
 }

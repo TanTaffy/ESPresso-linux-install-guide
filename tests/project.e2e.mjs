@@ -81,6 +81,9 @@ try {
   await expect(page.getByTestId('node-task-adc')).toContainText(
     'Imported · Limited editing',
   );
+  await page.getByTestId('node-task-adc').screenshot({
+    path: 'test-results/imported-task-node.png',
+  });
   await expect(
     page.getByRole('button', { name: 'Delete selected node', exact: true }),
   ).toBeDisabled();

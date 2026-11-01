@@ -41,6 +41,8 @@ The canvas palette contains **Task**, **Task from template**, **Queue** and **Sh
 
 Task implementation and configuration headers stay in your usual editor. ESPresso edits the layout and reusable task definitions.
 
+Generated source and build files include a short credit to James Platt and Manchester Stinger Motorsports. Task implementation files (`main/tasks/*_task.cpp`) also start with one of twelve coffee puns, selected from the task's random ID so the line stays consistent across previews and exports. JSON exports carry the credit as metadata. Imported code, handwritten configuration and third-party sources retain their existing contents.
+
 Exports create a new project folder and never overwrite existing handwritten code. Startup always opens a blank **New layout**; saved layouts and the pressure example are explicit choices. The pressure example includes a Johnson-derived `config/Config.hpp` for ADC A and CAN, with ADC timing and task settings using its constants. Its sample rate is 10 Hz (100 ms).
 
 ## Themes
@@ -65,7 +67,9 @@ Generated source and dependency lists live in `main/generated/project.cmake`. `m
 
 Add **Queue** from the canvas palette and edit its typed fields and capacity under **Shared structs**. **Delivery** switches a data node between a latest snapshot, FIFO queue or latest-value mailbox, updating its access steps. Sending appends a message; receiving removes one. Multiple consumers compete for messages.
 
-Add **Send queue** or **Receive queue** steps, or connect their canvas ports. Set a timeout of `0` for no wait, `-1` for a blocking wait, or a positive number of milliseconds. On failure, skip remaining steps, continue (drop an unsent message or retain the local receive value), or assert. Assertions disabled in the firmware mean the assert policy continues on failure. Skipping the remainder of setup still proceeds to loop.
+Add **Send queue message** or **Take next message** steps, or connect their canvas ports. Taking a message removes the oldest waiting message from the queue and copies it into your task's local variable. Each message goes to one receiver. Set a timeout of `0` for no wait, `-1` for a blocking wait, or a positive number of milliseconds. On failure, skip remaining steps, continue (drop an unsent message or retain the local receive value), or assert. Assertions disabled in the firmware mean the assert policy continues on failure. Skipping the remainder of setup still proceeds to loop.
+
+Each step's timeout lives under its task namespace in `Config.hpp`, for example `Config::adc::LOOP_SEND_PRESSURE_TIMEOUT_MS`. Generated helpers in `main/tasks/*_parameters.hpp` read that setting, check its range and convert milliseconds to FreeRTOS ticks. Task code calls `send_pressure(pressure)` or `receive_pressure()` without a timeout argument. Receive returns `std::optional<PressureData>`: a sample on success or `std::nullopt` when no message arrives before the timeout. The generated task handles that result according to the selected failure behaviour. Repeated operations on the same queue get separate helpers and timeout settings.
 
 Select **Loop trigger → Queue message** and a trigger queue to block until a message arrives. The generated `loop(const data::Type& event)` receives that message; do not add another receive step for the same message. Select **Task notification** for a loop that runs once per counting notification. A **Notify task** step or a task-to-task connection sends a notification. All handles exist before setup starts; setup order itself is not guaranteed. Generated notification loops use notification index 0. Connect notification sources in task code, not interrupt handlers.
 

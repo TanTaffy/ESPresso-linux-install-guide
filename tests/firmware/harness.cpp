@@ -8,6 +8,8 @@
 #include "shared/latest.hpp"
 #include "shared/messages.hpp"
 #include "tasks/consumer_task.hpp"
+#include "tasks/notification_parameters.hpp"
+#include "tasks/notification_task.hpp"
 #include "tasks/producer_task.hpp"
 #include <cstring>
 #include <deque>
@@ -115,8 +117,10 @@ BaseType_t xQueueSend(QueueHandle_t handle, const void *value, TickType_t timeou
     q.items.emplace_back(bytes, bytes + q.size);
     return pdTRUE;
 }
-BaseType_t xQueueReceive(QueueHandle_t handle, void *value, TickType_t)
+TickType_t last_receive_timeout = 0;
+BaseType_t xQueueReceive(QueueHandle_t handle, void *value, TickType_t timeout)
 {
+    last_receive_timeout = timeout;
     auto &q = *static_cast<MockQueue *>(handle);
     if (q.items.empty())
     {
@@ -211,6 +215,23 @@ int main()
     };
     run("Multi"); // Send at the boundary between scanning inputs and waiting.
     CHECK(probe::events.back() == 1000 && probe::events.size() == 5);
+    // No-argument receive helpers read per-step configuration and never invent a sample.
+    CHECK(!espresso::tasks::notification::receive_messages());
+    CHECK(last_receive_timeout == 25);
+    CHECK(!espresso::tasks::notification::receive_messages_2());
+    CHECK(last_receive_timeout == portMAX_DELAY);
+    packet.value = 77;
+    CHECK(espresso::shared::send_messages(packet, 0));
+    const auto received = espresso::tasks::notification::receive_messages();
+    CHECK(received && received->value == 77);
+    CHECK(!espresso::tasks::notification::receive_messages());
+    probe::received = -99;
+    espresso::tasks::notification::loop(); // Empty queue skips the following placeholders.
+    CHECK(probe::received == -99);
+    packet.value = 13;
+    CHECK(espresso::shared::send_messages(packet, 0));
+    espresso::tasks::notification::loop();
+    CHECK(probe::received == 13); // The second receive keeps its local default and continues.
     run("Producer");
     CHECK(producer_period_checked && capacity_from_config && timeout_from_config);
     std::cout << "Generated C++: full queues, event payloads, startup handles and counting "

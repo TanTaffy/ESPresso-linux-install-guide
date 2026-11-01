@@ -193,11 +193,11 @@ test('pressure example generates mutex helpers, setup/loop files and timed wrapp
   assert.match(f['main/tasks/adc_task.cpp'], /\]\] PressureData pressure\{\}/);
   assert.match(
     f['main/tasks/adc_task.cpp'],
-    /shared::write_pressure\(pressure\)/,
+    /using ::espresso::shared::write_pressure;[\s\S]*    write_pressure\(pressure\)/,
   );
   assert.match(
     f['main/tasks/can_task.cpp'],
-    /pressure = ::espresso::shared::read_pressure\(\)/,
+    /using ::espresso::shared::read_pressure;[\s\S]*pressure = read_pressure\(\)/,
   );
   assert.match(
     f['main/config/Config.hpp'],
@@ -219,7 +219,12 @@ test('pressure example generates mutex helpers, setup/loop files and timed wrapp
     /xSemaphoreTake\(mutex, portMAX_DELAY\)/,
   );
   assert.match(f['sdkconfig.defaults'], /CONFIG_FREERTOS_HZ=1000/);
-  assert.deepEqual(JSON.parse(f['espresso.layout.json']), p);
+  const { generatorCredit, ...layout } = JSON.parse(f['espresso.layout.json']);
+  assert.match(
+    generatorCredit,
+    /James Platt for Manchester Stinger Motorsports$/,
+  );
+  assert.deepEqual(layout, p);
 });
 test('generation preserves ordering, notes, arbitrary structs and local aliases', () => {
   const p = example();
@@ -514,7 +519,7 @@ test('typed queues consume messages and queue-triggered loops receive the waking
   assert.doesNotMatch(files['main/shared/pressure.cpp'], /Semaphore/);
   assert.match(
     files['main/tasks/adc_task.cpp'],
-    /if \(!::espresso::shared::send_pressure\(pressure, \(static_cast<int64_t>\(::Config::adc::[A-Z_]+_TIMEOUT_MS/,
+    /if \(!send_pressure\(pressure\)\) return;/,
   );
   assert.match(
     files['main/tasks/can_task.hpp'],
@@ -574,7 +579,7 @@ test('queue validation rejects incorrect access, invalid limits and dangling eve
   const result = request({ op: 'preview', project: p }).result;
   assert.match(
     result.files['main/tasks/can_task.cpp'],
-    /\(void\)::espresso::shared::receive_pressure\(extra, \(static_cast<int64_t>\(::Config::can::[A-Z_]+_TIMEOUT_MS/,
+    /if \(const auto received = receive_pressure\(\)\)[\s\S]*extra = \*received;/,
   );
 });
 
@@ -591,7 +596,10 @@ test('notifications have startup-safe handles and counting wakeups', () => {
   });
   let r = request({ op: 'preview', project: p }).result;
   assert.equal(r.valid, true);
-  assert.match(r.files['main/tasks/adc_task.cpp'], /generated::notify_can\(\)/);
+  assert.match(
+    r.files['main/tasks/adc_task.cpp'],
+    /using ::espresso::generated::notify_can;[\s\S]*    notify_can\(\)/,
+  );
   const runtime = r.files['main/generated/task_runtime.cpp'];
   assert.match(runtime, /ulTaskNotifyTake\(pdFALSE, portMAX_DELAY\)/);
   assert.ok(

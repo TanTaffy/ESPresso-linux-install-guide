@@ -148,11 +148,8 @@ json project_manifest(const json &p, const Files &files)
                 managed[name]["taskId"] = owner;
         }
     }
-    return {{"format", "espresso-project"},
-            {"version", 2},
-            {"generatorVersion", "1.0.0"},
-            {"layout", p},
-            {"files", managed}};
+    return {{"format", "espresso-project"},       {"version", 2}, {"generatorVersion", "1.0.0"},
+            {"generatorCredit", skeleton_credit}, {"layout", p},  {"files", managed}};
 }
 json import_project(const fs::path &manifest)
 {

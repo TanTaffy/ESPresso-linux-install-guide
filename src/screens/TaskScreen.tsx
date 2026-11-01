@@ -305,13 +305,13 @@ export function TaskScreen({
                   className="button dashed"
                   onClick={() => addStep(phase, 'send')}
                 >
-                  Send queue
+                  Send queue message
                 </button>
                 <button
                   className="button dashed"
                   onClick={() => addStep(phase, 'receive')}
                 >
-                  Receive queue
+                  Take next message
                 </button>
                 <button
                   className="button dashed"
@@ -412,7 +412,7 @@ export function TaskScreen({
                   <option value="read">Read shared struct</option>
                   <option value="write">Publish shared struct</option>
                   <option value="send">Send queue message</option>
-                  <option value="receive">Receive queue message</option>
+                  <option value="receive">Take next queue message</option>
                   <option value="notify">Notify task</option>
                 </select>
               </FieldLabel>
@@ -608,12 +608,24 @@ export function TaskScreen({
                     selectedStep.kind === 'receive'
                       ? structs.find((s) => s.id === selectedStep.structId)
                           ?.delivery === 'mailbox'
-                        ? 'Mailbox: sending replaces the unread value; receiving consumes it.'
-                        : 'FIFO queue: each message is consumed once. A queue-triggered task already receives its trigger message as event.'
+                        ? 'Sending replaces any unread mailbox message. Taking it removes that message and copies it into your local variable. If empty, waits up to the configured timeout.'
+                        : selectedStep.kind === 'receive'
+                          ? 'Takes the oldest waiting message out of the queue and copies it into your local variable. If empty, waits up to the configured timeout. Each message goes to one receiver. A queue-triggered task already receives its message as event.'
+                          : 'Adds a copy of your message to the queue. If full, waits up to the configured timeout for space. The receiving task takes messages in the order they were sent.'
                       : selectedStep.kind === 'read'
                         ? 'Copies shared data into a local snapshot.'
                         : 'Publishes the complete local snapshot. The generated helper handles the mutex.'}
                   </div>
+                  {(selectedStep.kind === 'send' ||
+                    selectedStep.kind === 'receive') && (
+                    <div className="info-note">
+                      The timeout is stored under this task’s namespace in
+                      Config File. Generated helpers read it automatically; task
+                      code needs no timeout argument. 0 checks immediately, -1
+                      waits indefinitely, and a positive value waits that many
+                      milliseconds.
+                    </div>
+                  )}
                 </>
               )}
             </>

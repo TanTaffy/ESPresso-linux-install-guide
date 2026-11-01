@@ -118,8 +118,8 @@ test('runtime settings, queue capacity and operation timeouts are read from conf
     /queue = xQueueCreate\(::Config::queues::readings::CAPACITY,/,
   );
   assert.match(
-    preview.files['main/tasks/worker_task.cpp'],
-    /::Config::worker::LOOP_SEND_READING_TIMEOUT_MS/,
+    preview.files['main/tasks/worker_parameters.hpp'],
+    /parameters::LOOP_SEND_READING_TIMEOUT_MS/,
   );
   worker.stackBytes = 12288;
   const changed = request({ op: 'preview', project: imported }).configContent;
@@ -173,4 +173,89 @@ test('out-of-range imported runtime values are diagnosed and preserved for corre
     assert.equal(preview.valid, false, to);
     assert.equal(imported.configFile.content, source);
   }
+});
+
+test('queue helpers hide config timeouts and retain names when imported tasks gain setup connectors', () => {
+  const p = fixture();
+  const worker = p.nodes[0];
+  worker.loop.push(
+    {
+      id: 'receive-reading',
+      kind: 'receive',
+      name: 'Receive reading',
+      note: '',
+      structId: 'readings',
+      localName: 'received',
+      timeoutMs: 25,
+      onFailure: 'return',
+    },
+    {
+      id: 'receive-next',
+      kind: 'receive',
+      name: 'Receive next',
+      note: '',
+      structId: 'readings',
+      localName: 'next',
+      timeoutMs: -1,
+      onFailure: 'continue',
+    },
+  );
+  const preview = request({ op: 'preview', project: p });
+  assert.equal(preview.valid, true);
+  const source = preview.files['main/tasks/worker_task.cpp'];
+  assert.match(source, /send_readings\(reading\)/);
+  assert.match(source, /const auto received_message = receive_readings\(\)/);
+  assert.match(source, /received = \*received_message/);
+  assert.match(source, /receive_readings_2\(\)/);
+  assert.doesNotMatch(
+    source,
+    /TIMEOUT_MS|pdMS_TO_TICKS|static_cast|static_assert/,
+  );
+  const header = preview.files['main/tasks/worker_parameters.hpp'];
+  assert.match(
+    header,
+    /std::optional<::espresso::data::Reading> receive_readings\(\)/,
+  );
+  assert.match(header, /parameters::LOOP_RECEIVE_READING_TIMEOUT_MS/);
+  assert.match(header, /parameters::LOOP_RECEIVE_NEXT_TIMEOUT_MS/);
+  assert.match(header, /return std::nullopt/);
+  const first = request({
+    op: 'export',
+    project: p,
+    path: fs.mkdtempSync(path.join(os.tmpdir(), 'espresso-queue-helpers-')),
+  }).path;
+  const imported = request({
+    op: 'import-project',
+    path: path.join(first, 'espresso.project.json'),
+  }).project;
+  imported.nodes[0].setup.push({
+    id: 'send-startup',
+    kind: 'send',
+    name: 'Send startup',
+    note: '',
+    structId: 'readings',
+    localName: 'startup',
+    timeoutMs: 37,
+    onFailure: 'return',
+    requiresCode: true,
+  });
+  const updated = request({ op: 'preview', project: imported });
+  assert.equal(updated.valid, true, JSON.stringify(updated.diagnostics));
+  assert.equal(updated.files['main/tasks/worker_task.cpp'], source);
+  assert.match(
+    updated.files['main/tasks/worker_parameters.hpp'],
+    /inline bool send_readings\([^]*?parameters::LOOP_SEND_READING_TIMEOUT_MS/,
+  );
+  assert.match(
+    updated.files['main/tasks/worker_parameters.hpp'],
+    /inline bool send_readings_2\([^]*?parameters::SETUP_SEND_STARTUP_TIMEOUT_MS/,
+  );
+  assert.match(
+    updated.connectionCode['send-startup'],
+    /send_readings_2\(startup\)/,
+  );
+  assert.doesNotMatch(
+    updated.connectionCode['send-startup'],
+    /pdMS_TO_TICKS|static_cast/,
+  );
 });

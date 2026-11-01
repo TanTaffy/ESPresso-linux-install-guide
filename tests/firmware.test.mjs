@@ -62,6 +62,28 @@ test('exported firmware compiles and handles FIFO, full queues, events and notif
   ];
   notification.loop = [
     { id: 'notified', kind: 'placeholder', name: 'Notified', note: '' },
+    {
+      id: 'receive',
+      kind: 'receive',
+      name: 'Receive',
+      note: '',
+      structId: 'messages',
+      localName: 'received',
+      timeoutMs: 25,
+      onFailure: 'return',
+    },
+    { id: 'remember', kind: 'placeholder', name: 'Remember sample', note: '' },
+    {
+      id: 'receive-next',
+      kind: 'receive',
+      name: 'Receive next',
+      note: '',
+      structId: 'messages',
+      localName: 'message',
+      timeoutMs: -1,
+      onFailure: 'continue',
+    },
+    { id: 'add-next', kind: 'placeholder', name: 'Add next sample', note: '' },
   ];
   const key = (kind, id) => `${kind}-${Buffer.from(id).toString('hex')}`;
   const code = Object.fromEntries(
@@ -74,6 +96,8 @@ test('exported firmware compiles and handles FIFO, full queues, events and notif
   code[key('step', 'sent')] = '    ++probe::sent;\n';
   code[key('step', 'consume')] = '    probe::received = event.value;\n';
   code[key('step', 'notified')] = '    ++probe::notifications;\n';
+  code[key('step', 'remember')] = '    probe::received = received.value;\n';
+  code[key('step', 'add-next')] = '    probe::received += message.value;\n';
   code[key('step', 'multi-event')] =
     `    if (const auto* message = std::get_if<messagesEvent>(&event)) {
         probe::events.push_back(message->value.value);

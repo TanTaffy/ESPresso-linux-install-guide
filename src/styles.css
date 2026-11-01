@@ -1495,6 +1495,10 @@ button:focus-visible {
   background: var(--imported-bg);
   border: 1px solid var(--border);
 }
+.graph-node > .imported-badge {
+  max-width: calc(100% - 28px);
+  margin: 4px 14px 6px;
+}
 .pending-badge {
   color: var(--warning-text);
   background: var(--warning-bg);

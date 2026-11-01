@@ -265,7 +265,7 @@ try {
   await page.getByRole('textbox', { name: /^Field name / }).fill('value');
   await tab('Task steps');
   await page
-    .getByRole('button', { name: 'Send queue', exact: true })
+    .getByRole('button', { name: 'Send queue message', exact: true })
     .last()
     .click();
   await page

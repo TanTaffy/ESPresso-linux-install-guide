@@ -421,10 +421,93 @@ std::string payload_header(const json &p, const json &n)
     return out + "static_assert(std::is_trivially_copyable_v<" + name +
            ">, \"Payloads must be trivially copyable; queues copy bytes.\");\n}\n\n";
 }
-std::string parameter_header(const json &, const json &t)
+std::string queue_step_function(const json &p, const json &t, const json &selected)
 {
-    return "#pragma once\n#include \"generated/project_headers.hpp\"\nnamespace espresso::tasks::" +
-           t["symbol"].get<std::string>() + " { namespace parameters = ::" + config_namespace(t) +
-           "; }\n";
+    std::vector<json> steps;
+    std::set<std::string> ids;
+    auto append = [&](const json &task)
+    {
+        for (const auto *phase : {"setup", "loop"})
+            for (const auto &step : task[phase])
+                if ((step["kind"] == "send" || step["kind"] == "receive") &&
+                    ids.insert(step["id"]).second)
+                    steps.push_back(step);
+    };
+    // Adding setup connectors must not rename helpers used by preserved loop code.
+    for (const auto &original : p.value("imported", json::object()).value("nodes", json::array()))
+        if (original["id"] == t["id"])
+            append(original);
+    append(t);
+    std::set<std::string> names;
+    for (const auto &step : steps)
+    {
+        for (const auto &node : p["nodes"])
+            if (node["id"] == step["structId"])
+            {
+                const auto base =
+                    step["kind"].get<std::string>() + "_" + node["symbol"].get<std::string>();
+                auto name = base;
+                size_t suffix = 2;
+                while (!names.insert(name).second)
+                    name = base + "_" + std::to_string(suffix++);
+                if (step["id"] == selected["id"])
+                    return name;
+                break;
+            }
+    }
+    throw std::runtime_error("Queue step has no matching input/output helper.");
+}
+
+std::string parameter_header(const json &p, const json &t)
+{
+    std::string out = "#pragma once\n#include \"generated/project_headers.hpp\"\n";
+    std::set<std::string> includes;
+    bool receives = false;
+    for (const auto *phase : {"setup", "loop"})
+        for (const auto &step : t[phase])
+            if (step["kind"] == "send" || step["kind"] == "receive")
+            {
+                receives |= step["kind"] == "receive";
+                for (const auto &node : p["nodes"])
+                    if (node["id"] == step["structId"])
+                        includes.insert(node["symbol"]);
+            }
+    for (const auto &name : includes)
+        out += "#include \"shared/" + name + ".hpp\"\n";
+    if (receives)
+        out += "#include <optional>\n";
+    out += "\nnamespace espresso::tasks::" + t["symbol"].get<std::string>() +
+           " {\nnamespace parameters = ::" + config_namespace(t) + ";\n";
+    for (const auto *phase : {"setup", "loop"})
+        for (const auto &step : t[phase])
+            if (step["kind"] == "send" || step["kind"] == "receive")
+                for (const auto &node : p["nodes"])
+                    if (node["id"] == step["structId"])
+                    {
+                        const bool receive = step["kind"] == "receive";
+                        const auto type =
+                            "::espresso::data::" + node["typeName"].get<std::string>();
+                        const auto function = queue_step_function(p, t, step);
+                        out += "\n// Timeout in Config File: " + config_namespace(t) +
+                               "::" + timeout_setting(t, phase, step) + "\ninline " +
+                               (receive ? "std::optional<" + type + "> " : "bool ") + function +
+                               (receive ? "()\n{\n" : "(const " + type + "& value)\n{\n");
+                        out += "    constexpr auto timeout_ms = static_cast<int64_t>(parameters::" +
+                               timeout_setting(t, phase, step) + ");\n";
+                        out += "    static_assert(timeout_ms >= -1 && timeout_ms <= 3600000, "
+                               "\"Timeout must be -1 or 0-3600000 ms\");\n";
+                        out += "    const auto timeout = timeout_ms == -1 ? portMAX_DELAY : "
+                               "pdMS_TO_TICKS(timeout_ms);\n";
+                        const auto call = "::espresso::shared::" + step["kind"].get<std::string>() +
+                                          "_" + node["symbol"].get<std::string>() +
+                                          "(value, timeout)";
+                        if (receive)
+                            out += "    " + type + " value{};\n    if (!" + call +
+                                   ") return std::nullopt;\n    return value;\n}\n";
+                        else
+                            out += "    return " + call + ";\n}\n";
+                        break;
+                    }
+    return out + "}\n";
 }
 } // namespace espresso
