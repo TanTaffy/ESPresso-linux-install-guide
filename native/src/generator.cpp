@@ -93,6 +93,103 @@ std::string field_literal(const json &f)
     }
     return v;
 }
+namespace
+{
+std::string payload_comments(const json &p, const json &node, const std::string &indent)
+{
+    std::string out = indent + "// " + node["typeName"].get<std::string>() +
+                      " payload (declared field defaults):\n";
+    auto fields = node["fields"];
+    std::vector<json> definitions;
+    std::set<std::string> described;
+    const auto types = p.value("types", json::array());
+    auto reference = [&](const std::string &id)
+    {
+        if (described.insert(id).second)
+            for (const auto &type : types)
+                if (type["id"] == id)
+                    definitions.push_back(type);
+    };
+    const auto payload = node.value("payloadTypeId", "");
+    if (!payload.empty())
+    {
+        fields = json::array();
+        for (const auto &type : types)
+            if (type["id"] == payload)
+            {
+                described.insert(payload);
+                if (type["kind"] == "struct")
+                    fields = type["fields"];
+                else
+                    definitions.push_back(type);
+            }
+    }
+    for (const auto &field : fields)
+    {
+        auto declaration = field_cpp(p, field);
+        declaration = declaration.substr(4, declaration.size() - 5);
+        out += indent + "//   " + comment(declaration) + "\n";
+        const std::string type = field["type"];
+        if (type.rfind("type:", 0) == 0)
+            reference(type.substr(5));
+    }
+    if (fields.empty() && definitions.empty())
+        out += indent + "//   No fields.\n";
+    for (const auto &type : definitions)
+    {
+        const std::string name = type["name"];
+        if (type["kind"] == "struct")
+        {
+            out += indent + "//   Nested " + comment(name) + ":\n";
+            for (const auto &field : type["fields"])
+            {
+                auto declaration = field_cpp(p, field);
+                declaration = declaration.substr(4, declaration.size() - 5);
+                out += indent + "//     " + comment(declaration) + "\n";
+            }
+            out += indent + "//   Further nested declarations: generated/data_types.hpp.\n";
+        }
+        else if (type["kind"] == "enum")
+        {
+            out += indent + "//   Enum " + comment(name) + ":\n";
+            for (const auto &value : type["values"])
+                out += indent + "//     " + comment(value["name"]) + " = " +
+                       comment(value["value"]) + "\n";
+        }
+        else
+        {
+            out += indent + "//   External " + comment(type["cppType"]) +
+                   ": member layout and "
+                   "defaults are defined in its header.\n";
+            for (const auto &header : type["headers"])
+                out += indent + "//   See " + comment(header) + ".\n";
+        }
+    }
+    return out;
+}
+
+std::string lifecycle_comment(const json &task, const std::map<std::string, json> &data,
+                              const std::string &phase)
+{
+    if (phase == "setup")
+        return "// Runs once inside this task, after shared queues and mutexes are initialised.\n"
+               "// Other tasks may be running their setup at the same time.\n";
+    const auto trigger = task.value("trigger", "periodic");
+    if (trigger == "notification")
+        return "// Runs once per pending task notification (notification index 0).\n";
+    if (trigger == "queues")
+        return "// Runs when any selected queue or mailbox has a message.\n"
+               "// event identifies the input and contains its message, already removed from that "
+               "input.\n";
+    if (trigger == "queue")
+        return "// Runs when a message arrives from " +
+               comment(data.at(task.at("queueId"))["symbol"]) +
+               ".\n// event is that message, already removed from the queue or mailbox.\n";
+    return "// Runs repeatedly at the period configured by " + config_namespace(task) +
+           "::PERIOD_MS (milliseconds).\n";
+}
+} // namespace
+
 Files generate(const json &p, json *diagnostics)
 {
     Files files;
@@ -252,6 +349,7 @@ Files generate(const json &p, json *diagnostics)
             {
                 const auto &q = by_id.at(id);
                 const std::string qs = q["symbol"];
+                task_header += payload_comments(p, q, "");
                 task_header +=
                     "struct " + qs + "Event { " + q["typeName"].get<std::string>() + " value; };\n";
                 variants += (variants.empty() ? "" : ", ") + qs + "Event";
@@ -259,7 +357,9 @@ Files generate(const json &p, json *diagnostics)
             task_header += "using Event = std::variant<" + variants + ">;\n";
         }
         files["main/tasks/" + sym + "_task.hpp"] =
-            task_header + "void setup();\nvoid loop(" + loop_parameters(t, by_id) + ");\n}\n";
+            task_header + lifecycle_comment(t, by_id, "setup") + "void setup();\n" +
+            lifecycle_comment(t, by_id, "loop") + "void loop(" + loop_parameters(t, by_id) +
+            ");\n}\n";
         files["main/tasks/" + sym + "_parameters.hpp"] = parameter_header(p, t);
         std::string source =
             "#include \"" + sym + "_task.hpp\"\n#include \"" + sym + "_parameters.hpp\"\n";
@@ -310,17 +410,31 @@ Files generate(const json &p, json *diagnostics)
         source += base_code(p, region_key("state", t["id"]), "");
         for (const auto *phase : {"setup", "loop"})
         {
-            source += "void " + std::string(phase) + "(" +
+            source += lifecycle_comment(t, by_id, phase) + "void " + std::string(phase) + "(" +
                       (std::string(phase) == "loop" ? loop_parameters(t, by_id) : "") + ")\n{\n";
             if (std::string(phase) == "loop" && !trigger_ids(t).empty())
-                source += "    (void)event; // Message consumed by the queue-triggered runtime.\n";
+            {
+                if (t.value("trigger", "periodic") == "queue")
+                    source += payload_comments(p, by_id.at(t.at("queueId")), "    ");
+                else
+                    source += "    // Payload fields for each event alternative are listed in " +
+                              sym + "_task.hpp.\n";
+                source +=
+                    "    // Use event directly; receiving again would take a different message.\n"
+                    "    (void)event;\n";
+            }
             std::set<std::string> locals;
             for (const auto &step : t[phase])
                 if (step["kind"] != "placeholder" && step["kind"] != "notify")
                 {
                     const std::string local = step["localName"];
                     if (locals.insert(local).second)
-                        source += "    [[maybe_unused]] " +
+                        source += payload_comments(p, by_id.at(step["structId"]), "    ") +
+                                  "    // Local working copy; publish or send explicitly to share "
+                                  "changes.\n"
+                                  "    // Initialised on each call; it does not retain values "
+                                  "between calls.\n"
+                                  "    [[maybe_unused]] " +
                                   by_id.at(step["structId"]).at("typeName").get<std::string>() +
                                   " " + local + "{};\n";
                 }
@@ -362,19 +476,33 @@ Files generate(const json &p, json *diagnostics)
                     {
                         const auto function = queue_step_function(p, t, step);
                         const auto failure = step.value("onFailure", "return");
+                        const auto skipped =
+                            std::string(phase) == "setup"
+                                ? "skip remaining setup steps; loop() still starts."
+                                : "skip remaining steps in this loop iteration.";
+                        source += "    // Timeout: " + config_namespace(t) +
+                                  "::" + timeout_setting(t, phase, step) +
+                                  " (ms; 0 = no wait, -1 = wait forever).\n";
                         if (kind == "receive")
                         {
                             std::string received = "received";
                             while (locals.count(received))
                                 received += "_message";
-                            source +=
-                                "    // Take the oldest waiting message; no value means timeout.\n";
+                            source += by_id.at(step["structId"]).value("delivery", "snapshot") ==
+                                              "mailbox"
+                                          ? "    // Take the unread mailbox message; no value "
+                                            "means none arrived in time.\n"
+                                          : "    // Take the oldest waiting message from the "
+                                            "queue; each message goes to one receiver.\n";
                             source += "    if (const auto " + received + " = " + function + "())\n";
                             source += "        " + local + " = *" + received + ";\n";
                             if (failure == "return")
-                                source += "    else\n        return;\n";
+                                source += "    else\n        // No message arrived: " +
+                                          std::string(skipped) + "\n        return;\n";
                             else if (failure == "assert")
-                                source += "    else\n        configASSERT(false);\n";
+                                source += "    else\n        // No message: assert if enabled; "
+                                          "otherwise keep the local value and continue.\n"
+                                          "        configASSERT(false);\n";
                             else
                                 source += "    // On timeout, keep the previous local value and "
                                           "continue.\n";
@@ -384,20 +512,35 @@ Files generate(const json &p, json *diagnostics)
                             const auto call = function + "(" + local + ")";
                             source += by_id.at(step["structId"]).value("delivery", "snapshot") ==
                                               "mailbox"
-                                          ? "    // Replace the unread mailbox message.\n"
+                                          ? "    // Replace the unread mailbox message without "
+                                            "waiting; timeout is ignored.\n"
                                           : "    // Add this message to the queue.\n";
                             if (failure == "return")
+                            {
+                                source += "    // If sending fails, " + std::string(skipped) + "\n";
                                 source += "    if (!" + call + ") return;\n";
+                            }
                             else if (failure == "assert")
+                            {
+                                source += "    // If sending fails, assert if enabled; otherwise "
+                                          "drop the message and continue.\n";
                                 source += "    if (!" + call + ") { configASSERT(false); }\n";
+                            }
                             else
                                 source +=
                                     "    (void)" + call + "; // Drop the message on timeout.\n";
                         }
                     }
                     else
+                    {
+                        source += kind == "read"
+                                      ? "    // Copy the latest shared snapshot; reading does not "
+                                        "remove or modify it.\n"
+                                      : "    // Publish the complete local snapshot under its "
+                                        "mutex, including unchanged defaults.\n";
                         source += kind == "read" ? "    " + local + " = read_" + ss + "();\n"
                                                  : "    write_" + ss + "(" + local + ");\n";
+                    }
                 }
                 source += "\n";
             }

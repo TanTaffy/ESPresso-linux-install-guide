@@ -43,6 +43,8 @@ Task implementation and configuration headers stay in your usual editor. ESPress
 
 Generated source and build files include a short credit to James Platt and Manchester Stinger Motorsports. Task implementation files (`main/tasks/*_task.cpp`) also start with one of twelve coffee puns, selected from the task's random ID so the line stays consistent across previews and exports. JSON exports carry the credit as metadata. Imported code, handwritten configuration and third-party sources retain their existing contents.
 
+Task skeletons document payload fields and their declaration defaults above local variables, including arrays, nested types and enum values. External payloads point to their defining headers. Comments explain local-copy lifetime, setup/loop triggers, queue timeout settings, failure policies and shared snapshot reads/writes. Queue-triggered tasks document the incoming `event` so it is clear that its message has already been received.
+
 Exports create a new project folder and never overwrite existing handwritten code. Startup always opens a blank **New layout**; saved layouts and the pressure example are explicit choices. The pressure example includes a Johnson-derived `config/Config.hpp` for ADC A and CAN, with ADC timing and task settings using its constants. Its sample rate is 10 Hz (100 ms).
 
 ## Themes

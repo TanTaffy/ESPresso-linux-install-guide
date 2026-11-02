@@ -208,7 +208,7 @@ test('queue helpers hide config timeouts and retain names when imported tasks ga
   assert.match(source, /received = \*received_message/);
   assert.match(source, /receive_readings_2\(\)/);
   assert.doesNotMatch(
-    source,
+    source.replace(/\/\/[^\n]*/g, ''),
     /TIMEOUT_MS|pdMS_TO_TICKS|static_cast|static_assert/,
   );
   const header = preview.files['main/tasks/worker_parameters.hpp'];
