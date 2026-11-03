@@ -792,6 +792,12 @@ export function useEditor() {
   );
   const graphEdges: Edge[] = useMemo(() => {
     const edges: Edge[] = [];
+    const dataEdgeOptions = {
+      style: { stroke: 'var(--data)', strokeWidth: 1.8 },
+      labelStyle: { fill: 'var(--data-text)', fontSize: 11 },
+      labelBgStyle: { fill: 'var(--canvas)' },
+      interactionWidth: 22,
+    };
     for (const t of tasks)
       for (const id of t.trigger === 'queues'
         ? (t.queueIds ?? [])
@@ -800,6 +806,7 @@ export function useEditor() {
           : [])
         if (structs.some((s) => s.id === id))
           edges.push({
+            ...dataEdgeOptions,
             id: `trigger:${t.id}:${id}`,
             deletable: !importedNode(project, t.id),
             source: id,
@@ -808,7 +815,7 @@ export function useEditor() {
             targetHandle: 'read-new',
             type: 'smoothstep',
             label: 'wake + receive',
-            style: { stroke: 'var(--data)', strokeDasharray: '5 3' },
+            style: { ...dataEdgeOptions.style, strokeDasharray: '5 3' },
           });
     for (const t of tasks)
       for (const phase of ['setup', 'loop'] as Phase[])
@@ -836,6 +843,7 @@ export function useEditor() {
           )
             continue;
           edges.push({
+            ...dataEdgeOptions,
             id: s.id,
             deletable: !lockedConnection(project!, s.id),
             source:
@@ -856,10 +864,6 @@ export function useEditor() {
                 : 'write',
             type: 'smoothstep',
             label: s.requiresCode ? `${s.kind} · Requires code update` : s.kind,
-            style: { stroke: 'var(--data)', strokeWidth: 1.8 },
-            labelStyle: { fill: 'var(--data-text)', fontSize: 11 },
-            labelBgStyle: { fill: 'var(--canvas)' },
-            interactionWidth: 22,
           });
         }
     return edges;

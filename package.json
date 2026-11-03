@@ -1,6 +1,6 @@
 {
   "name": "espresso-desktop",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "ESPresso: visual FreeRTOS layouts and ESP-IDF C++ skeletons",
   "author": "ESPresso",
   "license": "MIT",
