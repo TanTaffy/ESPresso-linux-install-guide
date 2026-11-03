@@ -80,6 +80,16 @@ test('generated files carry the credit, with stable coffee puns only on task sou
   const seen = new Set();
   for (const [name, text] of Object.entries(first.files)) {
     if (name.startsWith('components/')) continue;
+    if (name === '.vscode/settings.json') {
+      assert.ok(text.startsWith('//' + credit + '\n\n'), name);
+      assert.equal(
+        JSON.parse(text.slice(text.indexOf('{')))[
+          'C_Cpp.default.compileCommands'
+        ],
+        '${workspaceFolder}/build/compile_commands.json',
+      );
+      continue;
+    }
     if (name.endsWith('.json')) {
       assert.equal(JSON.parse(text).generatorCredit, credit, name);
       continue;
@@ -142,4 +152,107 @@ test('edited generated code is rejected during import', () => {
   });
   assert.equal(rejected.ok, false);
   assert.match(rejected.error, /generated file changed/);
+});
+
+test('VS Code settings stay editable and survive repeated project imports', () => {
+  const p = project();
+  p.nodes = p.nodes.slice(0, 1);
+  let output = exportTo(p);
+  const edited =
+    '// My workspace preferences\n{\n  "editor.tabSize": 4,\n  "C_Cpp.default.compileCommands": "${workspaceFolder}/build/compile_commands.json"\n}\n';
+  fs.writeFileSync(path.join(output, '.vscode/settings.json'), edited);
+  for (let i = 0; i < 2; i++) {
+    const imported = request({
+      op: 'import-project',
+      path: path.join(output, 'espresso.project.json'),
+    }).project;
+    output = exportTo(imported);
+    assert.equal(
+      fs.readFileSync(path.join(output, '.vscode/settings.json'), 'utf8'),
+      edited,
+    );
+  }
+});
+
+test('only the corrected CMake include is accepted on import', () => {
+  const p = project();
+  p.nodes = p.nodes.slice(0, 1);
+  const output = exportTo(p),
+    file = path.join(output, 'main/CMakeLists.txt');
+  const original = fs.readFileSync(file, 'utf8');
+  for (const old of [
+    'include("generated/project.cmake")',
+    'include(generated/project.cmake)',
+  ]) {
+    fs.writeFileSync(
+      file,
+      original.replace(
+        'include("${CMAKE_CURRENT_LIST_DIR}/generated/project.cmake")',
+        old,
+      ),
+    );
+    const rejected = call({
+      op: 'import-project',
+      path: path.join(output, 'espresso.project.json'),
+    });
+    assert.equal(rejected.ok, false);
+    assert.match(
+      rejected.error,
+      /use include\("\$\{CMAKE_CURRENT_LIST_DIR\}\/generated\/project\.cmake"\)/,
+    );
+  }
+  fs.writeFileSync(file, original);
+  assert.ok(
+    request({
+      op: 'import-project',
+      path: path.join(output, 'espresso.project.json'),
+    }).project,
+  );
+});
+
+test('placeholder comments use one TODO heading, wrapped notes and preserve supplied code', () => {
+  const p = project();
+  p.nodes = p.nodes.slice(0, 1);
+  const task = p.nodes[0];
+  task.setup = [
+    {
+      id: 'read',
+      kind: 'placeholder',
+      name: 'Read pressure',
+      note:
+        'Read the sensor and populate the pressure sample before publishing it. '.repeat(
+          4,
+        ) + '\n\nKeep the sample valid only when the sensor reports success.',
+    },
+  ];
+  task.loop = [
+    {
+      id: 'implemented',
+      kind: 'placeholder',
+      name: 'Process sample',
+      note: 'This note should not be repeated above an implementation.',
+    },
+    { id: 'empty', kind: 'placeholder', name: 'Store result', note: '' },
+  ];
+  const body =
+    '    const int result = 7; // My exact formatting.\n    (void)result;\n';
+  p.code = { [`step-${Buffer.from('implemented').toString('hex')}`]: body };
+  const preview = request({ op: 'preview', project: p });
+  const source = preview.files[`main/tasks/${task.symbol}_task.cpp`];
+  assert.match(
+    source,
+    /    \/\/ TODO: Read pressure\n    \/\/ Read the sensor/,
+  );
+  assert.match(source, /    \/\/\n    \/\/ Keep the sample valid/);
+  assert.equal((source.match(/TODO: Read pressure/g) ?? []).length, 1);
+  assert.doesNotMatch(
+    source,
+    /TODO: Process sample|TODO: Implement this step|This note should not/,
+  );
+  assert.ok(source.includes('    // Process sample\n' + body));
+  assert.match(source, /    \/\/ TODO: Store result\n/);
+  for (const line of source
+    .split('\n')
+    .filter((line) => line.startsWith('    //')))
+    assert.ok(line.length <= 96, line);
 });

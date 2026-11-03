@@ -179,7 +179,7 @@ test('multi-input triggers validate their sources and signal only successful sen
   }
 });
 
-test('pressure example generates mutex helpers, setup/loop files and timed wrappers', () => {
+test('pressure example replaces unread samples and wakes CAN with the latest event', () => {
   const p = example(),
     r = request({ op: 'preview', project: p });
   assert.equal(r.ok, true);
@@ -193,18 +193,16 @@ test('pressure example generates mutex helpers, setup/loop files and timed wrapp
   assert.match(f['main/tasks/adc_task.cpp'], /\]\] PressureData pressure\{\}/);
   assert.match(
     f['main/tasks/adc_task.cpp'],
-    /using ::espresso::shared::write_pressure;[\s\S]*    write_pressure\(pressure\)/,
+    /if \(!send_pressure\(pressure\)\) return;/,
   );
   assert.match(
     f['main/tasks/can_task.cpp'],
-    /using ::espresso::shared::read_pressure;[\s\S]*pressure = read_pressure\(\)/,
+    /loop\(const PressureData& event\)/,
   );
-  assert.match(
-    f['main/config/Config.hpp'],
-    /1'000 \/ Config::adc::SAMPLE_RATE_HZ/,
-  );
+  assert.match(f['main/config/Config.hpp'], /PERIOD_MS = 100/);
   assert.match(f['main/config/Config.hpp'], /namespace adc/);
-  assert.match(f['main/config/Config.hpp'], /SAMPLE_RATE_HZ = 10/);
+  assert.doesNotMatch(f['main/config/Config.hpp'], /SAMPLE_RATE_HZ/);
+  assert.equal(p.nodes[0].periodExpression, undefined);
   assert.match(f['main/generated/project_headers.hpp'], /config\/Config.hpp/);
   assert.match(
     f['main/tasks/adc_parameters.hpp'],
@@ -216,8 +214,14 @@ test('pressure example generates mutex helpers, setup/loop files and timed wrapp
   );
   assert.match(
     f['main/shared/pressure.cpp'],
-    /xSemaphoreTake\(mutex, portMAX_DELAY\)/,
+    /xQueueCreate\(1, sizeof\(data::PressureData\)\)/,
   );
+  assert.equal(p.nodes[1].delivery, 'mailbox');
+  assert.match(
+    f['main/shared/pressure.cpp'],
+    /xQueueOverwrite\(queue, &value\)/,
+  );
+  assert.doesNotMatch(f['main/tasks/can_task.cpp'], /receive_pressure\(/);
   assert.match(f['sdkconfig.defaults'], /CONFIG_FREERTOS_HZ=1000/);
   const { generatorCredit, ...layout } = JSON.parse(f['espresso.layout.json']);
   assert.match(
@@ -243,6 +247,8 @@ test('generation preserves ordering, notes, arbitrary structs and local aliases'
   p2.symbol = 'temperature';
   p2.name = 'Temperature';
   p2.typeName = 'TemperatureData';
+  p2.delivery = 'snapshot';
+  delete p2.capacity;
   p2.fields = p2.fields.map((f) => ({ ...f, id: f.id + '-temp' }));
   p.nodes.push(p2);
   t.loop.push({
@@ -257,11 +263,15 @@ test('generation preserves ordering, notes, arbitrary structs and local aliases'
   assert.equal(r.result.valid, true);
   const code = r.result.files['main/tasks/adc_task.cpp'];
   assert.ok(
-    code.indexOf('// First step') < code.indexOf('// Read pressure channel'),
+    code.indexOf('// TODO: First step') <
+      code.indexOf('// TODO: Read pressure channel'),
   );
-  assert.match(code, /\/\/ TODO: line one\n    \/\/ TODO: line two/);
+  assert.match(
+    code,
+    /\/\/ TODO: First step\n    \/\/ line one\n    \/\/ line two/,
+  );
   assert.match(code, /TemperatureData temp\{\}/);
-  assert.match(code, /write_pressure\(sample\)/);
+  assert.match(code, /send_pressure\(sample\)/);
   assert.match(r.result.files['main/config/Config.hpp'], /PERIOD_MS = 25/);
 });
 test('identifiers, duplicate types and numeric expressions cannot enter generated C++', () => {
@@ -842,7 +852,7 @@ test('project import preserves whole task files through config edits, save and r
   assert.doesNotMatch(original, /espresso:(begin|end)/);
   const source =
     original.replace(
-      '    // TODO: Read parameters::PRESSURE_CHANNEL into pressure.raw_count.',
+      '    // Read parameters::PRESSURE_CHANNEL into pressure.raw_count.',
       '    pressure.raw_count = 42;',
     ) + '\nnamespace custom { int samples = 3; }';
   fs.writeFileSync(path.join(folder, file), source);

@@ -135,10 +135,10 @@ void check_build(const std::string &content)
         code += line.substr(0, comment) + "\n";
     }
     require(std::regex_search(code,
-                              std::regex(R"(include\s*\(\s*"?generated/project\.cmake"?\s*\))")) &&
+                              std::regex(R"cmake(include\s*\(\s*"\$\{CMAKE_CURRENT_LIST_DIR\}/generated/project\.cmake"\s*\))cmake")) &&
                 code.find("${ESPRESSO_SOURCES}") != std::string::npos &&
                 code.find("${ESPRESSO_REQUIRES}") != std::string::npos,
-            "main/CMakeLists.txt: keep the generated/project.cmake include and the "
+            "main/CMakeLists.txt: use include(\"${CMAKE_CURRENT_LIST_DIR}/generated/project.cmake\") and keep the "
             "ESPRESSO_SOURCES / ESPRESSO_REQUIRES variables so new tasks and libraries can be "
             "registered. Add custom entries with list(APPEND ...) before idf_component_register. "
             "Your original build file is retained.");
@@ -150,6 +150,7 @@ void restore_preserved(const json &p, Files &files)
     {
         require(!files.count(name) || name.rfind("components/", 0) == 0 || name == "README.md" ||
                     name == ".gitignore" || name == "sdkconfig.defaults" ||
+                    name == ".vscode/settings.json" ||
                     name == "espresso.libraries.lock.json",
                 "Preserved file conflicts with generated output: " + name +
                     ". Rename the new task or shared instance to keep both files.");

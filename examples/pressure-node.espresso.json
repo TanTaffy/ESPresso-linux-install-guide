@@ -35,12 +35,14 @@
           "note": "Use parameters::REFERENCE_VOLTAGE and your sensor calibration. Set pressure.pressure_bar and pressure.valid."
         },
         {
-          "id": "adc-publish",
-          "kind": "write",
+          "id": "adc-send",
+          "kind": "send",
           "localName": "pressure",
-          "name": "Publish pressure",
+          "name": "Send pressure",
           "note": "",
-          "structId": "struct-pressure"
+          "structId": "struct-pressure",
+          "timeoutMs": 0,
+          "onFailure": "return"
         }
       ],
       "name": "ADC",
@@ -66,7 +68,6 @@
       ],
       "stackBytes": 4096,
       "symbol": "adc",
-      "periodExpression": "1'000 / Config::adc::SAMPLE_RATE_HZ",
       "parameters": [
         {
           "name": "MOSI_GPIO",
@@ -104,13 +105,6 @@
           "type": "uint32_t"
         },
         {
-          "name": "SAMPLE_RATE_HZ",
-          "type": "uint32_t",
-          "value": "10",
-          "label": "Sample rate (Hz)",
-          "description": "Controls the ADC loop period."
-        },
-        {
           "name": "PRESSURE_CHANNEL",
           "label": "Pressure channel",
           "description": "",
@@ -132,7 +126,6 @@
         "MISO_GPIO",
         "CS_A_GPIO",
         "SPI_CLOCK_HZ",
-        "SAMPLE_RATE_HZ",
         "PRESSURE_CHANNEL",
         "REFERENCE_VOLTAGE"
       ]
@@ -166,7 +159,8 @@
         "y": 180
       },
       "symbol": "pressure",
-      "typeName": "PressureData"
+      "typeName": "PressureData",
+      "delivery": "mailbox"
     },
     {
       "core": "any",
@@ -174,18 +168,10 @@
       "kind": "task",
       "loop": [
         {
-          "id": "can-read",
-          "kind": "read",
-          "localName": "pressure",
-          "name": "Read pressure",
-          "note": "",
-          "structId": "struct-pressure"
-        },
-        {
           "id": "can-pack",
           "kind": "placeholder",
           "name": "Pack CAN frame",
-          "note": "Choose can_frame.id and pack the pressure snapshot into can_frame.data using MSM_CAN::pack_* helpers."
+          "note": "Choose can_frame.id and pack event.raw_count, event.pressure_bar and event.valid into can_frame.data using MSM_CAN::pack_* helpers."
         },
         {
           "id": "can-send",
@@ -231,7 +217,9 @@
         }
       ],
       "configNamespace": "Config::can",
-      "configKeys": ["RX_GPIO", "TX_GPIO"]
+      "configKeys": ["RX_GPIO", "TX_GPIO"],
+      "trigger": "queue",
+      "queueId": "struct-pressure"
     }
   ],
   "target": "esp32s3",
@@ -239,11 +227,11 @@
   "code": {
     "includes-7461736b2d63616e": "#include \"esp_err.h\"\n",
     "loopvars-7461736b2d63616e": "    [[maybe_unused]] MSM_CAN::TxFrame can_frame{};\n",
-    "step-63616e2d696e6974": "    // TODO: Check the config CAN pins and initialise the shared controller once.\n    // ESP_ERROR_CHECK(MSM_CAN::init(parameters::RX_GPIO, parameters::TX_GPIO));\n",
-    "step-63616e2d73656e64": "    // TODO: Enable this call after configuring CAN and packing the payload.\n    // ESP_ERROR_CHECK(MSM_CAN::send_msg(can_frame));\n"
+    "step-63616e2d696e6974": "    // ESP_ERROR_CHECK(MSM_CAN::init(parameters::RX_GPIO, parameters::TX_GPIO));\n",
+    "step-63616e2d73656e64": "    // ESP_ERROR_CHECK(MSM_CAN::send_msg(can_frame));\n"
   },
   "configFile": {
     "path": "config/Config.hpp",
-    "content": "#pragma once\n\n#include <cstdint>\n#include \"driver/gpio.h\"\n\n// Pressure example: ADC A and CAN pin assignments derived from Johnson node.\n// Confirm these assignments against your board before enabling hardware calls.\nnamespace Config\n{\n    namespace adc\n    {\n        inline constexpr gpio_num_t MOSI_GPIO = GPIO_NUM_11;\n        inline constexpr gpio_num_t SCLK_GPIO = GPIO_NUM_12;\n        inline constexpr gpio_num_t MISO_GPIO = GPIO_NUM_13;\n        inline constexpr gpio_num_t CS_A_GPIO = GPIO_NUM_10;\n        inline constexpr uint32_t SPI_CLOCK_HZ = 4'000'000;\n        inline constexpr uint32_t SAMPLE_RATE_HZ = 10;\n        inline constexpr uint8_t PRESSURE_CHANNEL = 0;\n        inline constexpr float REFERENCE_VOLTAGE = 5.0f;\n    }\n\n    namespace can\n    {\n        inline constexpr gpio_num_t RX_GPIO = GPIO_NUM_2;\n        inline constexpr gpio_num_t TX_GPIO = GPIO_NUM_1;\n    }\n}\n"
+    "content": "#pragma once\n\n#include <cstdint>\n#include \"driver/gpio.h\"\n\n// Pressure example: ADC A and CAN pin assignments derived from Johnson node.\n// Confirm these assignments against your board before enabling hardware calls.\nnamespace Config\n{\n    namespace adc\n    {\n        inline constexpr gpio_num_t MOSI_GPIO = GPIO_NUM_11;\n        inline constexpr gpio_num_t SCLK_GPIO = GPIO_NUM_12;\n        inline constexpr gpio_num_t MISO_GPIO = GPIO_NUM_13;\n        inline constexpr gpio_num_t CS_A_GPIO = GPIO_NUM_10;\n        inline constexpr uint32_t SPI_CLOCK_HZ = 4'000'000;\n        inline constexpr uint8_t PRESSURE_CHANNEL = 0;\n        inline constexpr float REFERENCE_VOLTAGE = 5.0f;\n    }\n\n    namespace can\n    {\n        inline constexpr gpio_num_t RX_GPIO = GPIO_NUM_2;\n        inline constexpr gpio_num_t TX_GPIO = GPIO_NUM_1;\n    }\n}\n"
   }
 }

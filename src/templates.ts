@@ -31,6 +31,7 @@ export function captureTemplate(
   delete task.queueIds;
   delete task.configNamespace;
   delete task.configKeys;
+  delete task.codeNamesLocked;
   for (const phase of ['setup', 'loop'] as const)
     task[phase] = task[phase].filter((s) => s.kind === 'placeholder');
   const code: Record<string, string> = {};

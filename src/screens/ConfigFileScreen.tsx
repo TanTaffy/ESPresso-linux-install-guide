@@ -7,7 +7,12 @@ export function ConfigFileScreen({
   run,
   change,
   busy,
-}: Pick<EditorController, 'project' | 'preview' | 'run' | 'change' | 'busy'>) {
+  tasks,
+  editNode,
+}: Pick<
+  EditorController,
+  'project' | 'preview' | 'run' | 'change' | 'busy' | 'tasks' | 'editNode'
+>) {
   if (!project) return null;
   const path = project.configFile?.path ?? 'config/Config.hpp';
   return (
@@ -35,6 +40,17 @@ export function ConfigFileScreen({
         </button>
       </div>
       <section className="config-file-view">
+        <div className="config-task-links" aria-label="Edit task configuration">
+          {tasks.map((task) => (
+            <button
+              className="button"
+              key={task.id}
+              onClick={() => editNode(task.id)}
+            >
+              Edit {task.name} settings
+            </button>
+          ))}
+        </div>
         <div className="section-title">
           <h2>{path}</h2>
           <span className="muted">

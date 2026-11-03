@@ -101,7 +101,7 @@ function fixture() {
   const source = path.join(folder, 'main/tasks/adc_task.cpp');
   const code = fs
     .readFileSync(source, 'utf8')
-    .replace('// TODO: Process sample', 'sample.value += 17;');
+    .replace('// TODO: Process\n    // Process sample', 'sample.value += 17;');
   fs.writeFileSync(source, code);
   const imported = request({
     op: 'import-project',

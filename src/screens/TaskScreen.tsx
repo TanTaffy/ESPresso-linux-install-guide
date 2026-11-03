@@ -26,6 +26,7 @@ type Props = Pick<
   | 'selectedStep'
   | 'updateTask'
   | 'addNode'
+  | 'addTaskData'
   | 'addStep'
   | 'changeStep'
   | 'moveStep'
@@ -44,6 +45,7 @@ export function TaskScreen({
   selectedStep,
   updateTask,
   addNode,
+  addTaskData,
   addStep,
   changeStep,
   moveStep,
@@ -61,6 +63,15 @@ export function TaskScreen({
     selectedStep &&
     importedStep(project, task.id, selectedStep.id)
   );
+  const hasSnapshots = structs.some(
+    (s) => !s.delivery || s.delivery === 'snapshot',
+  );
+  const hasMessages = structs.some(
+    (s) => s.delivery === 'queue' || s.delivery === 'mailbox',
+  );
+  const hasNotificationTargets = tasks.some(
+    (t) => t.trigger === 'notification',
+  );
   return task ? (
     <>
       <div className="page-heading">
@@ -76,13 +87,19 @@ export function TaskScreen({
             {task.trigger === 'queues'
               ? 'Loop receives a typed event from any selected input.'
               : task.trigger === 'queue'
-                ? 'Loop receives one message as event.'
+                ? 'Each arrival supplies a sample named event; use it directly in your implementation.'
                 : task.trigger === 'notification'
                   ? 'Each notification runs the loop once.'
                   : 'Loop repeats at the task period.'}
           </p>
         </div>
         <div className="actions">
+          <button className="button" onClick={() => addTaskData('input')}>
+            Add incoming data
+          </button>
+          <button className="button" onClick={() => addTaskData('output')}>
+            Add output data
+          </button>
           <button
             className="button"
             onClick={() => newTemplate(task)}
@@ -178,10 +195,12 @@ export function TaskScreen({
                   {phase === 'setup'
                     ? 'Run once'
                     : task.trigger === 'queue'
-                      ? 'On queue message · event'
-                      : task.trigger === 'notification'
-                        ? 'On notification'
-                        : `Repeat every ${task.periodExpression || task.periodMs} ms`}
+                      ? `When ${structs.find((s) => s.id === task.queueId)?.name ?? 'data'} arrives · event`
+                      : task.trigger === 'queues'
+                        ? 'When any selected input arrives · event'
+                        : task.trigger === 'notification'
+                          ? 'On notification'
+                          : `Repeat every ${task.periodExpression || task.periodMs} ms`}
                 </span>
               </div>
               {task[phase].map((s, i) => (
@@ -287,38 +306,84 @@ export function TaskScreen({
                   <Plus size={15} />
                   Placeholder
                 </button>
-                <button
-                  className="button dashed"
-                  onClick={() => addStep(phase, 'read')}
+                <span
+                  className="step-action-hint"
+                  title={
+                    !hasSnapshots ? 'Add latest-value data first.' : undefined
+                  }
+                  tabIndex={!hasSnapshots ? 0 : undefined}
                 >
-                  <Download size={14} />
-                  Read struct
-                </button>
-                <button
-                  className="button dashed"
-                  onClick={() => addStep(phase, 'write')}
+                  <button
+                    className="button dashed"
+                    disabled={!hasSnapshots}
+                    onClick={() => addStep(phase, 'read')}
+                  >
+                    <Download size={14} />
+                    Read latest value
+                  </button>
+                </span>
+                <span
+                  className="step-action-hint"
+                  title={
+                    !hasSnapshots ? 'Add latest-value data first.' : undefined
+                  }
+                  tabIndex={!hasSnapshots ? 0 : undefined}
                 >
-                  <Upload size={14} />
-                  Publish
-                </button>
-                <button
-                  className="button dashed"
-                  onClick={() => addStep(phase, 'send')}
+                  <button
+                    className="button dashed"
+                    disabled={!hasSnapshots}
+                    onClick={() => addStep(phase, 'write')}
+                  >
+                    <Upload size={14} />
+                    Publish
+                  </button>
+                </span>
+                <span
+                  className="step-action-hint"
+                  title={!hasMessages ? 'Add message data first.' : undefined}
+                  tabIndex={!hasMessages ? 0 : undefined}
                 >
-                  Send queue message
-                </button>
-                <button
-                  className="button dashed"
-                  onClick={() => addStep(phase, 'receive')}
+                  <button
+                    className="button dashed"
+                    disabled={!hasMessages}
+                    onClick={() => addStep(phase, 'send')}
+                  >
+                    Send data
+                  </button>
+                </span>
+                <span
+                  className="step-action-hint"
+                  title={!hasMessages ? 'Add message data first.' : undefined}
+                  tabIndex={!hasMessages ? 0 : undefined}
                 >
-                  Take next message
-                </button>
-                <button
-                  className="button dashed"
-                  onClick={() => addStep(phase, 'notify')}
+                  <button
+                    className="button dashed"
+                    disabled={!hasMessages}
+                    onClick={() => addStep(phase, 'receive')}
+                  >
+                    {phase === 'loop' &&
+                    (task.trigger === 'queue' || task.trigger === 'queues')
+                      ? 'Receive an additional sample'
+                      : 'Receive data'}
+                  </button>
+                </span>
+                <span
+                  className="step-action-hint"
+                  title={
+                    !hasNotificationTargets
+                      ? 'Set a task to When notified first.'
+                      : undefined
+                  }
+                  tabIndex={!hasNotificationTargets ? 0 : undefined}
                 >
-                  Notify task
-                </button>
+                  <button
+                    className="button dashed"
+                    disabled={!hasNotificationTargets}
+                    onClick={() => addStep(phase, 'notify')}
+                  >
+                    Notify task
+                  </button>
+                </span>
               </div>
             </section>
           ))}
@@ -364,14 +429,42 @@ export function TaskScreen({
                   </div>
                 )}
 
-              <FieldLabel label="Step name">
-                <input
-                  aria-label="Step name"
-                  disabled={stepLocked}
-                  value={selectedStep.name}
-                  onChange={(e) => changeStep((s) => (s.name = e.target.value))}
-                />
-              </FieldLabel>
+              {selectedStep.kind === 'placeholder' ? (
+                <>
+                  {' '}
+                  <FieldLabel label="Step name">
+                    <input
+                      aria-label="Step name"
+                      disabled={stepLocked}
+                      value={selectedStep.name}
+                      onChange={(e) =>
+                        changeStep((s) => (s.name = e.target.value))
+                      }
+                    />
+                  </FieldLabel>
+                </>
+              ) : (
+                <details className="advanced-settings">
+                  <summary>Custom step name</summary>{' '}
+                  <FieldLabel label="Step name">
+                    <input
+                      aria-label="Step name"
+                      disabled={stepLocked}
+                      value={selectedStep.name}
+                      onChange={(e) =>
+                        changeStep((s) => (s.name = e.target.value))
+                      }
+                    />
+                  </FieldLabel>
+                </details>
+              )}
+              {selectedStep.kind === 'receive' &&
+                (task.trigger === 'queue' || task.trigger === 'queues') && (
+                  <p className="info-note">
+                    This takes an additional sample. The sample that started
+                    this loop is already available as <code>event</code>.
+                  </p>
+                )}
               <FieldLabel label="Step type">
                 <select
                   aria-label="Step type"
@@ -474,8 +567,8 @@ export function TaskScreen({
                     label={
                       selectedStep.kind === 'send' ||
                       selectedStep.kind === 'receive'
-                        ? 'Queue'
-                        : 'Shared struct'
+                        ? 'Incoming / outgoing data'
+                        : 'Latest value'
                     }
                   >
                     <select
@@ -491,7 +584,7 @@ export function TaskScreen({
                         })
                       }
                     >
-                      <option value="">Select a struct…</option>
+                      <option value="">Select data…</option>
                       {structs
                         .filter(
                           (s) =>
@@ -507,17 +600,20 @@ export function TaskScreen({
                         ))}
                     </select>
                   </FieldLabel>
-                  <FieldLabel label="Local snapshot name">
-                    <input
-                      className="mono"
-                      aria-label="Local snapshot name"
-                      disabled={stepLocked}
-                      value={selectedStep.localName ?? ''}
-                      onChange={(e) =>
-                        changeStep((s) => (s.localName = e.target.value))
-                      }
-                    />
-                  </FieldLabel>
+                  <details className="advanced-settings">
+                    <summary>Advanced local variable</summary>
+                    <FieldLabel label="Local sample name">
+                      <input
+                        className="mono"
+                        aria-label="Local snapshot name"
+                        disabled={stepLocked}
+                        value={selectedStep.localName ?? ''}
+                        onChange={(e) =>
+                          changeStep((s) => (s.localName = e.target.value))
+                        }
+                      />
+                    </FieldLabel>
+                  </details>
                   {(selectedStep.kind === 'send' ||
                     selectedStep.kind === 'receive') && (
                     <>

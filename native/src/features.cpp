@@ -180,6 +180,7 @@ std::string event_runtime(const std::vector<json> &tasks, const std::map<std::st
         out += "    {\n        constexpr auto stack_bytes = " + scope +
                "STACK_BYTES;\n        constexpr auto priority = " + scope +
                "PRIORITY;\n        constexpr auto core = " + scope +
+               "CORE_AFFINITY == -1 ? tskNO_AFFINITY : " + scope +
                "CORE_AFFINITY;\n        static_assert(stack_bytes >= 1024 && stack_bytes <= "
                "1048576 && stack_bytes % 4 == 0, \"Stack must be aligned and 1024-1048576 "
                "bytes\");\n        static_assert(priority >= 1 && priority <= 24, \"Priority must "

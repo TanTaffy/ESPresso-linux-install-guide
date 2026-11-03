@@ -29,6 +29,11 @@ const tab = (name) =>
 const shot = (name) =>
   page.screenshot({ path: path.resolve('test-results', name), fullPage: true });
 try {
+  await page
+    .getByRole('dialog')
+    .filter({ hasText: 'Start your program' })
+    .getByRole('button', { name: 'Close', exact: true })
+    .click();
   await app.evaluate(async () => {
     const cp = process.getBuiltinModule('node:child_process');
     const { EventEmitter } = process.getBuiltinModule('node:events');
@@ -49,6 +54,7 @@ try {
   fs.mkdirSync(folder);
   fs.writeFileSync(path.join(folder, 'SensorLib.hpp'), '#pragma once\n');
   await tab('Libraries');
+  await page.getByText('Library folder', { exact: true }).click();
   await page
     .getByRole('button', { name: 'Open libraries folder', exact: true })
     .click();
@@ -65,7 +71,47 @@ try {
   await expect(
     page.getByRole('textbox', { name: 'GitHub repository', exact: true }),
   ).toBeEditable();
+  await page.evaluate(() => {
+    globalThis.libraryDiscardPrompts = [];
+    globalThis.allowLibraryDiscard = false;
+    globalThis.originalConfirm = window.confirm;
+    window.confirm = (text) => {
+      globalThis.libraryDiscardPrompts.push(text);
+      return globalThis.allowLibraryDiscard;
+    };
+  });
+  await page
+    .getByLabel('Library name', { exact: true })
+    .fill('Unsaved library');
   await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(page.getByLabel('Library name', { exact: true })).toHaveValue(
+    'Unsaved library',
+  );
+  await tab('Task steps');
+  await expect(page.locator('.library-form')).toBeVisible();
+  await page
+    .getByRole('button', { name: 'GitHub release', exact: true })
+    .click();
+  await expect(page.getByLabel('Library name', { exact: true })).toHaveValue(
+    'Unsaved library',
+  );
+  assert.equal(
+    await page.evaluate(() =>
+      window.dispatchEvent(new Event('beforeunload', { cancelable: true })),
+    ),
+    false,
+  );
+  assert.equal(
+    await page.evaluate(() => globalThis.libraryDiscardPrompts.length),
+    4,
+  );
+  await page.evaluate(() => {
+    globalThis.allowLibraryDiscard = true;
+  });
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.evaluate(() => {
+    window.confirm = globalThis.originalConfirm;
+  });
   await app.evaluate(({ dialog }, folder) => {
     dialog.showOpenDialog = async () => ({
       canceled: false,
@@ -85,7 +131,7 @@ try {
       exact: true,
     }),
   ).toBeVisible();
-  await tab('Task types');
+  await tab('Templates');
   await page
     .getByRole('button', { name: 'Open templates folder', exact: true })
     .click();
@@ -216,6 +262,11 @@ try {
   page = await app.firstWindow();
   page.setDefaultTimeout(15000);
   page.on('pageerror', (e) => errors.push(e.message));
+  await page
+    .getByRole('dialog')
+    .filter({ hasText: 'Start your program' })
+    .getByRole('button', { name: 'Close', exact: true })
+    .click();
   await expect(page.locator('.project-label')).toHaveText('New layout');
   await expect(page.locator('.palette-button')).toHaveCount(4);
   await page
@@ -252,7 +303,10 @@ try {
   ).toBeVisible();
   await tab('Canvas');
   await page
-    .getByRole('button', { name: 'Queue Typed FIFO messages', exact: true })
+    .getByRole('button', {
+      name: 'Message data Send samples between tasks',
+      exact: true,
+    })
     .click();
   await page.locator('.shared-node').getByRole('button').click();
   await page
@@ -265,7 +319,7 @@ try {
   await page.getByRole('textbox', { name: /^Field name / }).fill('value');
   await tab('Task steps');
   await page
-    .getByRole('button', { name: 'Send queue message', exact: true })
+    .getByRole('button', { name: 'Send data', exact: true })
     .last()
     .click();
   await page
@@ -283,10 +337,7 @@ try {
     .fill('Consumer');
   await page
     .getByRole('combobox', { name: 'Loop trigger', exact: true })
-    .selectOption('queue');
-  await page
-    .getByRole('combobox', { name: 'Trigger queue', exact: true })
-    .selectOption({ label: 'Commands' });
+    .selectOption({ label: 'When Commands arrives' });
   await expect(page.locator('.react-flow__edge')).toHaveCount(2);
   await page
     .getByRole('button', { name: 'Edit Consumer', exact: true })
@@ -320,7 +371,7 @@ try {
   await expect(
     page.getByRole('combobox', { name: 'Notification target', exact: true }),
   ).toHaveValue(/.+/);
-  await tab('Data types');
+  await tab('Reusable types');
   await page
     .getByRole('button', { name: 'Add data type', exact: true })
     .click();
@@ -329,15 +380,25 @@ try {
     .fill('Reading');
   await page.getByRole('button', { name: 'Add field', exact: true }).click();
   await page.getByRole('textbox', { name: /^Field name/ }).fill('raw');
+  await page.getByRole('switch', { name: 'Array mode', exact: true }).check();
   await page.getByRole('spinbutton', { name: /^Array length/ }).fill('8');
+  await page.getByRole('switch', { name: 'Array mode', exact: true }).uncheck();
+  await expect(
+    page.getByLabel('raw array length 8', { exact: true }),
+  ).toHaveText('[8]');
+  await page.getByRole('switch', { name: 'Array mode', exact: true }).check();
+  await expect(
+    page.getByRole('spinbutton', { name: /^Array length/ }),
+  ).toHaveValue('8');
   await shot('data-type-editor.png');
-  await tab('Shared structs');
+  await tab('Data');
   await page
-    .getByRole('combobox', { name: 'Select shared struct', exact: true })
+    .getByRole('combobox', { name: 'Select data', exact: true })
     .selectOption({ label: 'Commands' });
   await page
     .getByRole('combobox', { name: 'Data delivery', exact: true })
     .selectOption('mailbox');
+  await page.getByText('Advanced data settings', { exact: true }).click();
   await page
     .getByRole('combobox', { name: 'Payload definition', exact: true })
     .selectOption({ label: 'Reading (struct)' });
@@ -391,13 +452,17 @@ try {
     .getByRole('combobox', { name: 'Select task', exact: true })
     .selectOption({ label: 'Sensor task' });
   await page
+    .getByLabel('Timing units', { exact: true })
+    .selectOption('expression');
+  await page.getByText('Advanced timing expression', { exact: true }).click();
+  await page
     .getByRole('textbox', { name: 'Period expression', exact: true })
     .fill('BoardConfig::period');
   await tab('Export');
   await page
     .getByRole('textbox', { name: 'Project name', exact: true })
     .fill('feature-project');
-  await expect(page.locator('.export-check')).toContainText('Ready to export');
+  await expect(page.locator('.export-check')).toContainText('Structure valid');
   await app.evaluate(({ dialog }, folder) => {
     dialog.showOpenDialog = async () => ({
       canceled: false,
@@ -405,7 +470,11 @@ try {
     });
   }, data);
   await page
-    .getByRole('button', { name: 'Choose folder & export', exact: true })
+    .getByRole('button', { name: 'Choose output folder', exact: true })
+    .click();
+  await page
+    .getByRole('button', { name: 'Export skeleton', exact: true })
+    .nth(1)
     .click();
   await expect(page.locator('.export-success')).toContainText(
     'feature-project',
@@ -453,7 +522,7 @@ try {
     path.join(output, 'espresso.project.json'),
   );
   await page
-    .getByRole('button', { name: 'Import project', exact: true })
+    .getByRole('button', { name: 'Import edited code', exact: true })
     .click();
   await page
     .getByRole('button', { name: 'Continue without saving', exact: true })
@@ -474,6 +543,7 @@ try {
   await expect(
     page.getByRole('spinbutton', { name: 'Loop period', exact: true }),
   ).toHaveValue('50');
+  await page.getByText('Advanced task settings', { exact: true }).click();
   await expect(
     page.getByRole('spinbutton', { name: 'Stack size', exact: true }),
   ).toHaveValue('8192');
@@ -499,6 +569,7 @@ try {
   await page
     .getByRole('textbox', { name: 'Task name', exact: true })
     .fill('GPS');
+  await page.getByText('Advanced task settings', { exact: true }).click();
   await page
     .getByRole('textbox', { name: 'Task C++ symbol', exact: true })
     .fill('gps');
@@ -526,9 +597,13 @@ try {
     });
   }, next);
   await tab('Export');
-  await expect(page.locator('.export-check')).toContainText('Ready to export');
+  await expect(page.locator('.export-check')).toContainText('Structure valid');
   await page
-    .getByRole('button', { name: 'Choose folder & export', exact: true })
+    .getByRole('button', { name: 'Choose output folder', exact: true })
+    .click();
+  await page
+    .getByRole('button', { name: 'Export skeleton', exact: true })
+    .nth(1)
     .click();
   await expect
     .poll(() =>

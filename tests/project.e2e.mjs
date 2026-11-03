@@ -21,6 +21,22 @@ const project = request({
   op: 'load',
   path: path.resolve('examples/pressure-node.espresso.json'),
 }).project;
+// This import test covers snapshot connector additions independently of the FIFO example.
+const snapshot = project.nodes.find((n) => n.kind === 'struct');
+snapshot.delivery = 'snapshot';
+delete snapshot.capacity;
+project.nodes.find((n) => n.id === 'task-adc').loop.at(-1).kind = 'write';
+const can = project.nodes.find((n) => n.id === 'task-can');
+can.trigger = 'periodic';
+delete can.queueId;
+can.loop.unshift({
+  id: 'can-read',
+  kind: 'read',
+  name: 'Read pressure',
+  note: '',
+  structId: snapshot.id,
+  localName: 'pressure',
+});
 for (const task of project.nodes)
   if (task.kind === 'task') {
     task.libraryIds = [];
@@ -34,7 +50,7 @@ const source = path.join(original, 'main/tasks/adc_task.cpp');
 const wholeSource = fs
   .readFileSync(source, 'utf8')
   .replace(
-    '    // TODO: Read parameters::PRESSURE_CHANNEL into pressure.raw_count.',
+    '    // Read parameters::PRESSURE_CHANNEL into pressure.raw_count.',
     '    pressure.raw_count = 123;',
   );
 fs.writeFileSync(source, wholeSource);
@@ -61,6 +77,11 @@ const page = await app.firstWindow(),
   errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 try {
+  await page
+    .getByRole('dialog')
+    .filter({ hasText: 'Start your program' })
+    .getByRole('button', { name: 'Close', exact: true })
+    .click();
   await app.evaluate(
     ({ dialog }, file) => {
       dialog.showOpenDialog = async () => ({
@@ -71,7 +92,7 @@ try {
     path.join(original, 'espresso.project.json'),
   );
   await page
-    .getByRole('button', { name: 'Import project', exact: true })
+    .getByRole('button', { name: 'Import edited code', exact: true })
     .click();
   await page
     .getByText('Project imported. Code preserved as a snapshot.', {
@@ -97,6 +118,7 @@ try {
   ).toBeVisible();
   await expect(page.locator('.react-flow__edge')).toHaveCount(edgeCount);
   await page.getByRole('button', { name: 'Edit ADC', exact: true }).click();
+  await page.getByText('Advanced task settings', { exact: true }).click();
   await expect(
     page.getByRole('textbox', { name: 'Task C++ symbol', exact: true }),
   ).toBeDisabled();
@@ -144,9 +166,10 @@ try {
     }),
   ).toBeDisabled();
   await page
-    .getByRole('button', { name: 'Read struct', exact: true })
+    .getByRole('button', { name: 'Read latest value', exact: true })
     .last()
     .click();
+  await page.getByText('Custom step name', { exact: true }).click();
   await expect(
     page.getByRole('textbox', { name: 'Step name', exact: true }),
   ).toBeEnabled();
@@ -170,7 +193,7 @@ try {
     })
     .click();
   await page
-    .getByRole('button', { name: 'Read struct', exact: true })
+    .getByRole('button', { name: 'Read latest value', exact: true })
     .last()
     .click();
   await page
@@ -200,6 +223,7 @@ try {
   await expect(
     page.getByRole('textbox', { name: 'Library name', exact: true }),
   ).toHaveValue('MSM_LiveData');
+  await page.getByText('Advanced build settings', { exact: true }).click();
   await page
     .getByRole('textbox', { name: 'Library dependencies', exact: true })
     .fill('freertos');
@@ -225,9 +249,13 @@ try {
   await page
     .getByRole('button', { name: 'Export skeleton', exact: true })
     .click();
-  await page.getByText('Ready to export', { exact: false }).waitFor();
+  await page.getByText('Structure valid', { exact: false }).waitFor();
   await page
-    .getByRole('button', { name: 'Choose folder & export', exact: true })
+    .getByRole('button', { name: 'Choose output folder', exact: true })
+    .click();
+  await page
+    .getByRole('button', { name: 'Export skeleton', exact: true })
+    .nth(1)
     .click();
   await page
     .getByRole('button', { name: 'Open folder', exact: true })

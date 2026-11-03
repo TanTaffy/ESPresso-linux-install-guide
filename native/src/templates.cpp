@@ -72,6 +72,7 @@ json instantiate_template(const json &project, const json &entry, const json &po
     task["symbol"] = symbol;
     task.erase("configNamespace");
     task.erase("configKeys");
+    task.erase("codeNamesLocked");
     if (!p.contains("code"))
         p["code"] = json::object();
     auto copy_code = [&](const std::string &kind, const std::string &from, const std::string &to)

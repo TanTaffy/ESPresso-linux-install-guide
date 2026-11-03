@@ -32,10 +32,18 @@ page.on('pageerror', (e) => errors.push(e.message));
 const screenshotDir = path.join(root, 'test-results');
 fs.mkdirSync(screenshotDir, { recursive: true });
 try {
+  await page
+    .getByRole('dialog')
+    .filter({ hasText: 'Start your program' })
+    .getByRole('button', { name: 'Close', exact: true })
+    .click();
   await expect(page.locator('.project-label')).toHaveText('New layout');
   await expect(page.locator('.react-flow__node')).toHaveCount(0);
   await expect(page.locator('.brand img, .sidebar-logo')).toHaveCount(0);
-  await expect(page.locator('.brand')).toHaveText('ESPresso');
+  await expect(page.locator('.brand-name')).toHaveText('ESPresso');
+  await expect(page.locator('.brand-version')).toHaveText(
+    `v${JSON.parse(fs.readFileSync('package.json', 'utf8')).version}`,
+  );
   await expect(page.locator('.status-bar')).toHaveCount(0);
   assert.equal(
     JSON.parse(
@@ -149,18 +157,21 @@ try {
   await page
     .getByRole('textbox', { name: 'Step name', exact: true })
     .fill('Calibrate pressure');
+  await expect(page.getByLabel('Timing units', { exact: true })).toHaveValue(
+    'interval',
+  );
+  await expect(page.getByLabel('Loop period', { exact: true })).toHaveValue(
+    '100',
+  );
   await expect(
-    page.getByRole('textbox', { name: 'Period expression', exact: true }),
-  ).toHaveValue("1'000 / Config::adc::SAMPLE_RATE_HZ");
+    page.getByLabel('Period expression', { exact: true }),
+  ).toHaveCount(0);
   await expect(
     page.getByRole('textbox', {
       name: 'Parameter value MOSI_GPIO',
       exact: true,
     }),
   ).toHaveValue('GPIO_NUM_11');
-  await page
-    .getByRole('textbox', { name: 'Period expression', exact: true })
-    .fill('');
   await page
     .getByRole('spinbutton', { name: 'Loop period', exact: true })
     .fill('50');
@@ -180,7 +191,7 @@ try {
   await page.screenshot({ path: path.join(screenshotDir, 'task-steps.png') });
   await page
     .locator('.tabs')
-    .getByRole('button', { name: 'Shared structs', exact: true })
+    .getByRole('button', { name: 'Data', exact: true })
     .click();
   await page.getByRole('button', { name: 'Add field', exact: true }).click();
   const newName = page
@@ -196,7 +207,7 @@ try {
     .locator('.tabs')
     .getByRole('button', { name: 'Export', exact: true })
     .click();
-  await page.getByText('Ready to export', { exact: false }).waitFor();
+  await page.getByText('Structure valid', { exact: false }).waitFor();
   await page
     .getByRole('button', { name: 'main/tasks/adc_task.cpp', exact: true })
     .click();
@@ -246,13 +257,15 @@ try {
         filePaths: [file],
       });
     }, fixturePath);
-    await page.getByRole('button', { name: 'Open', exact: true }).click();
+    await page
+      .getByRole('button', { name: 'Open layout', exact: true })
+      .click();
     await page.getByText('Layout opened', { exact: true }).waitFor();
     await page
       .locator('.tabs')
       .getByRole('button', { name: 'Export', exact: true })
       .click();
-    await page.getByText('Ready to export', { exact: false }).waitFor();
+    await page.getByText('Structure valid', { exact: false }).waitFor();
   }
   await app.evaluate(({ dialog }, folder) => {
     dialog.showOpenDialog = async () => ({
@@ -261,7 +274,11 @@ try {
     });
   }, data);
   await page
-    .getByRole('button', { name: 'Choose folder & export', exact: true })
+    .getByRole('button', { name: 'Choose output folder', exact: true })
+    .click();
+  await page
+    .getByRole('button', { name: 'Export skeleton', exact: true })
+    .nth(1)
     .click();
   await page
     .getByRole('button', { name: 'Open folder', exact: true })
@@ -290,7 +307,11 @@ try {
     fs.existsSync(path.join(data, 'pressure-node', 'main/tasks/adc_task.cpp')),
   );
   await page
-    .getByRole('button', { name: 'Choose folder & export', exact: true })
+    .getByRole('button', { name: 'Choose output folder', exact: true })
+    .click();
+  await page
+    .getByRole('button', { name: 'Export skeleton', exact: true })
+    .nth(1)
     .click();
   await page.getByRole('alert').waitFor();
   assert.match(await page.getByRole('alert').textContent(), /already exists/);
@@ -301,15 +322,18 @@ try {
       filePaths: [file],
     });
   }, savePath);
-  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.getByRole('button', { name: 'Open layout', exact: true }).click();
+  await page
+    .getByRole('button', { name: 'Continue without saving', exact: true })
+    .click();
   await page.getByText('Layout opened', { exact: true }).waitFor();
   await page
     .getByRole('button', {
-      name: 'Shared struct Drag onto canvas',
+      name: 'Latest value Share a current reading',
       exact: false,
     })
     .click();
-  await page.getByText('Shared struct added', { exact: true }).waitFor();
+  await page.getByText('Data added', { exact: true }).waitFor();
   const structNode = page.locator('.shared-node').last();
   const structId = await structNode.locator('..').getAttribute('data-id');
   // Connect the task's general write handle to the new struct's input.
@@ -371,5 +395,6 @@ try {
     }),
   );
 } finally {
-  await app.close();
+  await app.evaluate(({ app }) => app.exit(0)).catch(() => {});
+  await app.close().catch(() => {});
 }

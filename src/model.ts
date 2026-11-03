@@ -21,6 +21,9 @@ export type Task = {
   name: string;
   symbol: string;
   position: Position;
+  codeNamesManual?: boolean;
+  codeNamesLocked?: boolean;
+  frequencyHz?: number;
   periodMs: number;
   priority: number;
   stackBytes: number;
@@ -73,6 +76,8 @@ export type SharedStruct = {
   name: string;
   symbol: string;
   typeName: string;
+  codeNamesManual?: boolean;
+  codeNamesLocked?: boolean;
   position: Position;
   fields: Field[];
   delivery?: 'snapshot' | 'queue' | 'mailbox';
@@ -152,6 +157,10 @@ export type ExportResult = {
   path: string;
   fileCount: number;
 } | null;
+export type DeveloperTools = {
+  idfPath: string | null;
+  editorPath: string | null;
+};
 export type Phase = 'setup' | 'loop';
 export interface DesktopApi {
   initialAppearance: Appearance;
@@ -169,6 +178,9 @@ export interface DesktopApi {
   empty(): Promise<Project>;
   newDocument(project: Project): Promise<void>;
   revealExport(): Promise<void>;
+  chooseExportFolder(name: string): Promise<string | null>;
+  developerTools(): Promise<DeveloperTools>;
+  openExportInEditor(): Promise<void>;
   templates(): Promise<Catalog<TaskTemplate>>;
   saveTemplate(template: TaskTemplate): Promise<Catalog<TaskTemplate>>;
   deleteTemplate(id: string): Promise<Catalog<TaskTemplate>>;

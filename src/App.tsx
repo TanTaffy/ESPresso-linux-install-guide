@@ -43,7 +43,9 @@ import { TemplateScreen } from './screens/TemplateScreen';
 import { ConfigFileScreen } from './screens/ConfigFileScreen';
 import { DataTypeScreen } from './screens/DataTypeScreen';
 import { TaskIcon } from './components/TaskIcon';
+import { ProjectSetup } from './components/ProjectSetup';
 import { TemplatePicker } from './components/TemplatePicker';
+import { version as appVersion } from '../package.json';
 
 export default function App() {
   const editor = useEditor();
@@ -104,13 +106,19 @@ export default function App() {
       <header className="app-header">
         <div className="brand">
           <span className="brand-name">ESPresso</span>
+          <span className="brand-version">v{appVersion}</span>
         </div>
-        <div className="project-label" title={savedPath ?? 'Unsaved layout'}>
+        <button
+          className="project-label project-settings-button"
+          aria-label="Project settings"
+          title={savedPath ?? 'Project settings'}
+          onClick={() => editor.setProjectSetup(true)}
+        >
           {!savedPath && project.name === 'untitled-project'
             ? 'New layout'
             : project.name}
           {dirty && <b aria-label="Unsaved changes">●</b>}
-        </div>
+        </button>
         <span className="backend-label">
           <Cpu size={14} />
           {project.target
@@ -125,7 +133,7 @@ export default function App() {
             onClick={() => requestDocument('import')}
           >
             <FolderOpen size={16} />
-            Import project
+            Import edited code
           </button>
           <button
             className="button quiet"
@@ -133,7 +141,7 @@ export default function App() {
             disabled={busy}
           >
             <FolderOpen size={16} />
-            Open
+            Open layout
           </button>
           <button
             className="button"
@@ -147,6 +155,7 @@ export default function App() {
             className="button primary"
             onClick={() => {
               setView('export');
+              if (task) editor.setFile(`main/tasks/${task.symbol}_task.cpp`);
             }}
           >
             <ArrowDownToLine size={16} />
@@ -159,10 +168,10 @@ export default function App() {
           [
             { id: 'canvas', name: 'Canvas', icon: Workflow },
             { id: 'task', name: 'Task steps', icon: ListOrdered },
-            { id: 'struct', name: 'Shared structs', icon: Braces },
+            { id: 'struct', name: 'Data', icon: Braces },
             { id: 'libraries', name: 'Libraries', icon: Library },
-            { id: 'templates', name: 'Task types', icon: Layers },
-            { id: 'types', name: 'Data types', icon: Braces },
+            { id: 'templates', name: 'Templates', icon: Layers },
+            { id: 'types', name: 'Reusable types', icon: Braces },
             { id: 'config', name: 'Config File', icon: Settings2 },
             { id: 'export', name: 'Export', icon: FileCode2 },
           ] as const
@@ -173,6 +182,8 @@ export default function App() {
             aria-selected={view === id}
             onClick={() => {
               setView(id);
+              if (id === 'export' && task)
+                editor.setFile(`main/tasks/${task.symbol}_task.cpp`);
               if (id === 'task' && task) setSelectedId(task.id);
               if (id === 'struct' && shared) setSelectedId(shared.id);
             }}
@@ -259,7 +270,7 @@ export default function App() {
               >
                 <ListPlus size={18} />
                 <span>
-                  Queue<small>Typed FIFO messages</small>
+                  Message data<small>Send samples between tasks</small>
                 </span>
                 <Plus size={14} />
               </button>
@@ -273,7 +284,7 @@ export default function App() {
               >
                 <Braces size={18} />
                 <span>
-                  Shared struct<small>Drag onto canvas</small>
+                  Latest value<small>Share a current reading</small>
                 </span>
                 <Plus size={14} />
               </button>
@@ -299,7 +310,7 @@ export default function App() {
             </div>
             <div className="sidebar-section">
               <h3>
-                Shared data <span>{structs.length}</span>
+                Data <span>{structs.length}</span>
               </h3>
               {structs.map((s) => (
                 <button
@@ -309,7 +320,7 @@ export default function App() {
                   onDoubleClick={() => editNode(s.id)}
                 >
                   <Braces size={14} />
-                  {s.name || 'Unnamed struct'}
+                  {s.name || 'Unnamed data'}
                 </button>
               ))}
             </div>
@@ -338,7 +349,7 @@ export default function App() {
               <div>
                 <strong>Architecture</strong>
                 <span>
-                  {tasks.length} tasks · {structs.length} structs
+                  {tasks.length} tasks · {structs.length} data items
                 </span>
               </div>
               <label>
@@ -456,8 +467,11 @@ export default function App() {
               {!project.nodes.length && (
                 <div className="canvas-empty">
                   <Workflow size={32} />
-                  <h2>Start with a task and a struct</h2>
-                  <p>Drag them from the left, then connect their ports.</p>
+                  <h2>Start with a task</h2>
+                  <p>
+                    Add a task from the left. Choose when it runs, then connect
+                    its data.
+                  </p>
                 </div>
               )}
             </div>
@@ -482,7 +496,7 @@ export default function App() {
                 {selected?.kind === 'task'
                   ? 'Task settings'
                   : selected?.kind === 'struct'
-                    ? 'Shared struct'
+                    ? 'Data settings'
                     : 'Inspector'}
               </h3>
               {selected && (
@@ -518,6 +532,20 @@ export default function App() {
                   Edit setup & loop
                   <ArrowRight size={14} />
                 </button>
+                <div className="connection-actions">
+                  <button
+                    className="button full"
+                    onClick={() => editor.addTaskData('input')}
+                  >
+                    Add incoming data
+                  </button>
+                  <button
+                    className="button full"
+                    onClick={() => editor.addTaskData('output')}
+                  >
+                    Add output data
+                  </button>
+                </div>
                 <div className="info-note">
                   Connect data to read a snapshot or receive a queued message.
                   Connect tasks to send notifications to a
@@ -528,7 +556,7 @@ export default function App() {
               <>
                 <div className="struct-summary">
                   <Braces size={24} />
-                  <h2>{selected.typeName || 'Unnamed'}</h2>
+                  <h2>{selected.name || 'Unnamed'}</h2>
                   <code>shared::{selected.symbol}</code>
                   <p>
                     {selected.fields.length} fields ·{' '}
@@ -556,12 +584,12 @@ export default function App() {
               </>
             ) : (
               <div className="info-note">
-                Select a task or shared struct to inspect it.
+                Select a task or data item to inspect it.
                 <br />
                 <br />
-                Task output → struct: publish.
+                Task output → data: send or publish.
                 <br />
-                Struct output → task: read.
+                Data output → task: receive or read.
                 <br />
                 <br />
                 Connections add access steps to the task’s loop.
@@ -600,6 +628,19 @@ export default function App() {
         <div className="action-toast" role="status" aria-live="polite">
           {message}
         </div>
+      )}
+      {editor.projectSetup && (
+        <ProjectSetup
+          project={project}
+          onClose={() => editor.setProjectSetup(false)}
+          onApply={(name, target) => {
+            editor.change((p) => {
+              p.name = name;
+              p.target = target;
+            });
+            editor.setProjectSetup(false);
+          }}
+        />
       )}
       {editor.templatePicker && <TemplatePicker {...editor} />}
       {confirm && (

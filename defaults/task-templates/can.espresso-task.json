@@ -75,8 +75,7 @@
   "code": {
     "includes-74656d706c6174652d63616e": "#include \"esp_err.h\"\n",
     "loopvars-74656d706c6174652d63616e": "    [[maybe_unused]] MSM_CAN::TxFrame can_frame{};\n",
-    "step-63616e2d696e6974": "    // TODO: Set the task pin settings and initialise the shared controller once.\n    // ESP_ERROR_CHECK(MSM_CAN::init(static_cast<gpio_num_t>(parameters::rx_pin), static_cast<gpio_num_t>(parameters::tx_pin)));\n",
-    "step-63616e2d7061636b": "    // TODO: Choose can_frame.id and pack can_frame.data using MSM_CAN::pack_* helpers.\n",
-    "step-63616e2d73656e64": "    // TODO: Enable this call after configuring CAN and packing the payload.\n    // ESP_ERROR_CHECK(MSM_CAN::send_msg(can_frame));\n"
+    "step-63616e2d696e6974": "    // ESP_ERROR_CHECK(MSM_CAN::init(static_cast<gpio_num_t>(parameters::rx_pin), static_cast<gpio_num_t>(parameters::tx_pin)));\n",
+    "step-63616e2d73656e64": "    // ESP_ERROR_CHECK(MSM_CAN::send_msg(can_frame));\n"
   }
 }

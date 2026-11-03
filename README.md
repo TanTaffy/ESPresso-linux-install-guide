@@ -37,7 +37,7 @@ Source builds require Windows x64, Node.js 22.14+ and Visual Studio 2022 C++ Bui
 - CAN supplied as an ordinary editable task template, with MSM_CAN supplied as an ordinary default library
 - ESP-IDF project export, with message IDs and payload packing left as TODOs
 
-The canvas palette contains **Task**, **Task from template**, **Queue** and **Shared struct**. Task from template opens a searchable list of task types. CAN uses the same template mechanism as user-created types, including its bee icon and base code. MSM_CAN uses the ordinary GitHub library mechanism with `latest` selected by default. Libraries are downloaded only when used by a task or payload type, and resolved releases are recorded in `espresso.libraries.lock.json`.
+The canvas palette contains **Task**, **Task from template**, **Message data** and **Latest value**. Task from template opens a searchable list of task types. CAN uses the same template mechanism as user-created types, including its bee icon and base code. MSM_CAN uses the ordinary GitHub library mechanism with `latest` selected by default. Libraries are downloaded only when used by a task or payload type, and resolved releases are recorded in `espresso.libraries.lock.json`.
 
 Task implementation and configuration headers stay in your usual editor. ESPresso edits the layout and reusable task definitions.
 
@@ -45,17 +45,30 @@ Generated source and build files include a short credit to James Platt and Manch
 
 Task skeletons document payload fields and their declaration defaults above local variables, including arrays, nested types and enum values. External payloads point to their defining headers. Comments explain local-copy lifetime, setup/loop triggers, queue timeout settings, failure policies and shared snapshot reads/writes. Queue-triggered tasks document the incoming `event` so it is clear that its message has already been received.
 
-Exports create a new project folder and never overwrite existing handwritten code. Startup always opens a blank **New layout**; saved layouts and the pressure example are explicit choices. The pressure example includes a Johnson-derived `config/Config.hpp` for ADC A and CAN, with ADC timing and task settings using its constants. Its sample rate is 10 Hz (100 ms).
+Exports create a new project folder and never overwrite existing handwritten code. Startup opens project setup for a blank layout; saved layouts and the pressure example are explicit choices. The pressure example includes a Johnson-derived `config/Config.hpp` for ADC A and CAN, with pin and peripheral settings using its constants. The ADC runs every 100 ms (10 Hz) using the ordinary interval control and publishes samples into a one-slot latest-value mailbox. A new sample replaces any unread value. CAN wakes when data is available and uses its `event` directly, without replaying a backlog of older samples.
+
+## Build your first program
+
+1. Choose a project name and board at startup. Use the project name in the header to change them later.
+2. Add a task and name it once. Its C++ symbol is generated automatically. Code names and priority, stack and core controls live under **Advanced task settings**.
+3. Under **Run…**, choose a schedule or **When [data name] arrives**. Schedules accept milliseconds or Hz (10 Hz = 100 ms). Config settings can supply an interval or frequency; custom C++ expressions remain under Advanced. Frequency input rounds to whole milliseconds; the actual period is shown and execution follows the FreeRTOS tick.
+4. Use **Add output data** on a task to create and connect a message. Name it once and add its fields; the instance symbol, payload type, local sample and send label follow automatically. **Add incoming data** creates an input that wakes the task with an `event` sample already received. Existing data can be connected on the canvas or selected in **Run…**.
+5. Review task steps, then export. The preview opens on the selected task source, groups user code separately, and lists unfinished implementation steps. **Structure valid** checks the diagram, not driver implementations.
+6. Choose an output parent folder, check the displayed final path, then export. Open the project in VS Code or your editor, fill in TODOs and use the provided build commands. ESPresso detects SDK files in `IDF_PATH` or the standard Espressif frameworks folder; it does not install or activate the toolchain itself. Exports include VS Code compile-command settings, which become useful after ESP-IDF configures the build.
+
+New nodes are placed in free space. Automatic code names stay stable after an export, and imported interfaces remain protected. **Data** uses the same display name in the sidebar, canvas and editor. Array lengths, initial values, reusable payloads and custom code names remain available under their advanced options. The Config File screen links directly to each task's settings.
+
+Use **Open layout** for a saved diagram. Use **Import edited code** with the exported `espresso.project.json` to preserve code changes made in your editor. Continue editing the exported folder until you need to update its diagram; re-exporting an imported project creates a fresh folder.
 
 ## Themes
 
-Choose **Latte**, **Espresso**, **Midnight**, **Paper** or **Stinger** beside undo/redo. Stinger uses MSM-inspired purple and yellow on dark panels. Use the palette button to create a custom theme with five colours: background, panels, text, accent and shared data. Other shades are derived automatically, with a live preview and a text-contrast hint. Save a named theme, edit it later or delete it. Cancel restores the previous appearance.
+Choose **Latte**, **Espresso**, **Midnight**, **Paper** or **Stinger** beside undo/redo. Stinger uses the same light backgrounds and panels as Paper, with purple actions and yellow data accents. Use the palette button to create a custom theme with five colours: background, panels, text, accent and shared data. Other shades are derived automatically, with a live preview and a text-contrast hint. Save a named theme, edit it later or delete it. Cancel restores the previous appearance.
 
 Themes are saved as app preferences on this computer, separately from layouts and exports.
 
 ## Import and preserve code
 
-Exports include `espresso.project.json`. Write ordinary C++ in `main/tasks/*_task.cpp` and its header, then use **Import project** to select that manifest. Task code has no special comment fences or encoded IDs. ESPresso preserves imported task source and headers exactly as written, including formatting, helpers, includes and comments.
+Exports include `espresso.project.json`. Write ordinary C++ in `main/tasks/*_task.cpp` and its header, then use **Import edited code** to select that manifest. Task code has no special comment fences or encoded IDs. ESPresso preserves imported task source and headers exactly as written, including formatting, helpers, includes and comments.
 
 Imported tasks are marked **Imported · Limited editing** on the canvas and in task settings. Their existing steps, order, connectors, C++ symbols and loop triggers are read-only. Task display names, canvas positions and config values remain editable. Existing config setting names/types, imported payload definitions and library dependencies are protected. New tasks still receive fresh skeletons. Timing, priority, stack size and core affinity continue to update through the Config File and generated runtime. Add new input/output connectors through the main task ports or access-step buttons. These are marked **Requires code update**: the task inspector and exported `connection-updates.md` show the includes and calls to integrate in your editor. Task files remain unchanged. Use **Mark code updated** after integrating a connector; this records your confirmation rather than verifying C++. Pending status survives reimport. Existing queue wake-up inputs remain fixed because adding one changes the event interface.
 
@@ -95,7 +108,7 @@ The generator orders type definitions by dependency and exports libraries used b
 
 ## Custom task types
 
-Use **Task types → New task type** or **Save as task type** on a task. Set a description, an emoji/symbol or uploaded image icon (PNG/JPEG/WebP up to 128 KB), default task settings, default libraries, includes, helpers, persistent state, base setup/loop code and ordered placeholder steps with implementation. Use static or anonymous-namespace helpers when the same type can appear more than once. Add libraries through the Libraries screen before selecting them as defaults.
+Use **Templates → New task type** or **Save as task type** on a task. Set a description, an emoji/symbol or uploaded image icon (PNG/JPEG/WebP up to 128 KB), default task settings, default libraries, includes, helpers, persistent state, base setup/loop code and ordered placeholder steps with implementation. Use static or anonymous-namespace helpers when the same type can appear more than once. Add libraries through the Libraries screen before selecting them as defaults.
 
 Each saved task type is one `.espresso-task.json` file in **Documents/ESPresso/Task templates**. **Open templates folder** opens it. Users can add or edit JSON files directly and click **Refresh templates**, or reopen the canvas's **Task from template** picker. The folder includes authoring instructions. Invalid files are reported individually while valid templates remain available.
 
@@ -111,9 +124,9 @@ FIFO queue capacity lives in `Config::queues::<symbol>::CAPACITY`. Send/receive 
 
 New declarations follow the existing namespace indentation and line endings, including nested namespaces, tabs and CRLF. Existing handwritten text stays intact.
 
-The **Config File** page is a read-only preview. It starts with an otherwise empty file and creates task namespaces automatically. Task settings modify individual declarations without rewriting surrounding text. Use `parameters::SPI_PIN` inside a task, or its fully qualified `Config::adc::SPI_PIN` constant. An optional **Period expression** such as `1'000 / Config::adc::SAMPLE_RATE_HZ` uses those same constants.
+The **Config File** page is a read-only preview. It starts with an otherwise empty file and creates task namespaces automatically. Task settings modify individual declarations without rewriting surrounding text. Use `parameters::SPI_PIN` inside a task, or its fully qualified `Config::adc::SPI_PIN` constant. Under **Timing → From a config setting / expression**, a config dropdown or advanced **Period expression** such as `1'000 / Config::adc::SAMPLE_RATE_HZ` uses those same constants.
 
-After exporting, add constants to the appropriate namespace as you implement the firmware. **Import project** reads them back into task settings, including changes to existing values. Recognition covers unambiguous scalar `const`/`constexpr` declarations using `type NAME = expression;`. Arrays, functions, custom declarations and conditional code remain preserved verbatim. Expressions are retained as C++ text and checked by your firmware compiler. **Import config file** can also read an existing file without importing a whole project; it binds constants in the current tasks' namespaces.
+After exporting, add constants to the appropriate namespace as you implement the firmware. **Import edited code** reads them back into task settings, including changes to existing values. Recognition covers unambiguous scalar `const`/`constexpr` declarations using `type NAME = expression;`. Arrays, functions, custom declarations and conditional code remain preserved verbatim. Expressions are retained as C++ text and checked by your firmware compiler. **Import config file** can also read an existing file without importing a whole project; it binds constants in the current tasks' namespaces.
 
 Typical round trip: draw ADC and CAN → export → implement drivers and add SPI constants → import → add GPS and its settings → export to a fresh folder. Existing code, configuration and additional files are retained. App-added settings are editable and removable on any task. A removed task's configuration namespace remains in the file so handwritten settings survive.
 
@@ -135,7 +148,7 @@ npm run build:ui
 npm run test:e2e
 ```
 
-Native and desktop tests are offline by default. `npm test` also compiles exported C++ against a small host test harness and exercises queue/event behaviour; this does not replace testing on an ESP32. Desktop checks cover template persistence across restarts and configuration preservation. Set `ESPRESSO_LIVE_CAN=1` to additionally exercise a real CAN release download/export. Windows CI runs the offline checks and application build.
+Native and desktop tests are offline by default. `npm test` also compiles exported C++ against a small host test harness and exercises queue/event behaviour; this does not replace testing on an ESP32. Desktop checks cover template persistence across restarts and configuration preservation. Set `ESPRESSO_LIVE_CAN=1` to additionally exercise a real CAN release download/export. Windows CI runs the offline checks and application build. With ESP-IDF activated, `npm run test:idf` exports the pressure example into a fresh folder, downloads its CAN library, configures the selected board and builds real firmware. It leaves the output in `build/idf-validation/` and never flashes hardware. This catches SDK integration issues that the host harness cannot cover.
 
 Version tags such as `v0.7.0` also run the Windows release workflow. It checks the tag against package.json, builds the portable app, tests the packaged binary, stores a workflow artifact and publishes the executable with its SHA-256 checksum. Release notes live in `releases/<tag>.md`; tags without a notes file use generated notes.
 

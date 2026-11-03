@@ -25,6 +25,11 @@ async function pageFor(app) {
   page.on('pageerror', (e) => errors.push(e.message));
   page.setDefaultTimeout(15000);
   await page
+    .getByRole('dialog')
+    .filter({ hasText: 'Start your program' })
+    .getByRole('button', { name: 'Close', exact: true })
+    .click();
+  await page
     .getByRole('combobox', { name: 'App theme', exact: true })
     .waitFor();
   return page;
@@ -44,7 +49,7 @@ try {
     ['espresso', true],
     ['midnight', true],
     ['paper', false],
-    ['stinger', true],
+    ['stinger', false],
   ]) {
     await page
       .getByRole('combobox', { name: 'App theme', exact: true })

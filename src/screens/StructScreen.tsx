@@ -42,7 +42,7 @@ export function StructScreen({
     <>
       <div className="page-heading">
         <div>
-          <h1>{shared.typeName || 'Shared struct'}</h1>
+          <h1>{shared.name || 'Data'}</h1>
           <p>
             {shared.delivery === 'queue' &&
               shared.capacityExpression !== undefined && (
@@ -68,7 +68,7 @@ export function StructScreen({
         </div>
         <div className="actions">
           <select
-            aria-label="Select shared struct"
+            aria-label="Select data"
             value={shared.id}
             onChange={(e) => setSelectedId(e.target.value)}
           >
@@ -241,8 +241,8 @@ export function StructScreen({
             (e) => e.source === shared.id || e.target === shared.id,
           ) && (
             <p className="muted">
-              No connections yet. Connect this struct on the canvas or add a
-              task access step.
+              No connections yet. Connect this data on the canvas or add a task
+              access step.
             </p>
           )}
         </main>
@@ -277,7 +277,11 @@ export function StructScreen({
               </>
             )}
           </div>
-          <h3 className="spaced">Generated helpers</h3>
+          <h3 className="spaced">Shared runtime helpers</h3>
+          <p className="info-note">
+            Task files wrap these with send / receive helpers that read timeouts
+            from config automatically.
+          </p>
           <code className="helper-code">
             {shared.delivery && shared.delivery !== 'snapshot' ? (
               <>
@@ -299,16 +303,16 @@ export function StructScreen({
             onClick={() => removeNode(shared.id)}
           >
             <Trash2 size={15} />
-            Delete struct
+            Delete data
           </button>
         </aside>
       </div>
     </>
   ) : (
-    <Empty title="No shared structs yet">
+    <Empty title="No data yet">
       <button className="button primary" onClick={() => addNode('struct')}>
         <Plus size={16} />
-        Add shared struct
+        Add latest value
       </button>
     </Empty>
   );

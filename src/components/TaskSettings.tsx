@@ -1,4 +1,5 @@
 import type { Task, SharedStruct } from '../model';
+import { TaskSchedule } from './TaskSchedule';
 import { FieldLabel } from './FieldLabel';
 import { Plus, X } from 'lucide-react';
 export function TaskSettings({
@@ -34,170 +35,35 @@ export function TaskSettings({
           onChange={(e) => updateTask((t) => (t.name = e.target.value))}
         />
       </FieldLabel>
-      <FieldLabel label="C++ symbol" hint="Used in namespace and file names">
-        <input
-          aria-label="Task C++ symbol"
-          disabled={!!imported}
-          className="mono"
-          value={task.symbol}
-          onChange={(e) => updateTask((t) => (t.symbol = e.target.value))}
-        />
-      </FieldLabel>
-      <div className="form-pair">
-        <FieldLabel label="Period (ms)">
-          <input
-            aria-label="Loop period"
-            type="number"
-            min={1}
-            disabled={
-              (task.trigger ?? 'periodic') !== 'periodic' ||
-              !!task.periodExpression
-            }
-            value={task.periodExpression ? '' : task.periodMs}
-            placeholder={task.periodExpression ? 'Expression' : undefined}
-            onChange={(e) =>
-              updateTask((t) => (t.periodMs = Number(e.target.value)))
-            }
-          />
-        </FieldLabel>
-        <FieldLabel label="Priority">
-          <input
-            aria-label="Task priority"
-            type="number"
-            min={1}
-            max={24}
-            disabled={!!task.priorityExpression}
-            value={task.priorityExpression ? '' : task.priority}
-            onChange={(e) =>
-              updateTask((t) => (t.priority = Number(e.target.value)))
-            }
-          />
-        </FieldLabel>
-      </div>
-      {task.priorityExpression !== undefined && (
-        <FieldLabel label="Priority expression">
-          <input
-            aria-label="Priority expression"
-            className="mono"
-            value={task.priorityExpression}
-            onChange={(e) =>
-              updateTask((t) => {
-                t.priorityExpression = e.target.value || undefined;
-              })
-            }
-          />
-        </FieldLabel>
-      )}
-      {(task.trigger ?? 'periodic') === 'periodic' && (
-        <FieldLabel
-          label="Period expression (optional)"
-          hint="C++ constant expression in milliseconds. Replaces the numeric period."
-        >
-          <input
-            aria-label="Period expression"
-            className="mono"
-            placeholder={`1'000 / ${task.configNamespace ?? `Config::${task.symbol}`}::SAMPLE_RATE_HZ`}
-            value={task.periodExpression ?? ''}
-            onChange={(e) =>
-              updateTask((t) => {
-                t.periodExpression = e.target.value;
-              })
-            }
-          />
-        </FieldLabel>
-      )}
-      <FieldLabel label="Loop trigger">
-        <select
-          aria-label="Loop trigger"
-          disabled={!!imported}
-          value={task.trigger ?? 'periodic'}
-          onChange={(e) =>
-            updateTask((t) => {
-              t.trigger = e.target.value as Task['trigger'];
-            })
-          }
-        >
-          <option value="periodic">Periodic</option>
-          {!template && <option value="queue">Queue message</option>}
-          {!template && (
-            <option value="queues">Any selected queue / mailbox</option>
-          )}
-          <option value="notification">Task notification</option>
-        </select>
-      </FieldLabel>
-      {task.trigger === 'queue' && (
-        <FieldLabel
-          label="Trigger queue"
-          hint="Each loop receives one message as event. Consumers compete for messages."
-        >
-          <select
-            aria-label="Trigger queue"
-            disabled={!!imported}
-            value={task.queueId ?? ''}
-            onChange={(e) =>
-              updateTask((t) => {
-                t.queueId = e.target.value;
-              })
-            }
-          >
-            <option value="">Select a queue…</option>
-            {structs
-              .filter((s) => s.delivery === 'queue' || s.delivery === 'mailbox')
-              .map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-          </select>
-        </FieldLabel>
-      )}
-      {task.trigger === 'queues' && (
-        <section>
-          <h3>Input queues & mailboxes</h3>
-          {structs
-            .filter((s) => s.delivery === 'queue' || s.delivery === 'mailbox')
-            .map((s) => (
-              <label className="check-row" key={s.id}>
-                <input
-                  aria-label={`Trigger on ${s.name}`}
-                  disabled={!!imported}
-                  type="checkbox"
-                  checked={task.queueIds?.includes(s.id) ?? false}
-                  onChange={(e) =>
-                    updateTask((t) => {
-                      t.queueIds = e.target.checked
-                        ? [...(t.queueIds ?? []), s.id]
-                        : t.queueIds?.filter((id) => id !== s.id);
-                    })
-                  }
-                />
-                {s.name}
-              </label>
-            ))}
-          <p className="info-note">
-            Waits for any selected input. Each loop receives a typed event
-            identifying its source. Pending inputs are served in rotation.
-          </p>
-        </section>
-      )}
-      {task.trigger === 'notification' && (
-        <p className="info-note">
-          Waits for a notification before each loop. Each notification runs the
-          loop once.
-        </p>
-      )}
+      <TaskSchedule
+        task={task}
+        structs={structs}
+        updateTask={updateTask}
+        locked={!!imported}
+        template={template}
+      />
       {task.description && <p className="info-note">{task.description}</p>}
+      <datalist id="config-value-types">
+        {[
+          'int',
+          'unsigned',
+          'float',
+          'double',
+          'bool',
+          'uint8_t',
+          'uint16_t',
+          'uint32_t',
+        ].map((type) => (
+          <option value={type} key={type} />
+        ))}
+      </datalist>
       <section className="parameter-settings">
         <h3>Config settings</h3>
         <p className="info-note">
           {template ? (
             'Default constants for each task created from this template.'
           ) : (
-            <>
-              Namespace:{' '}
-              <code>{task.configNamespace ?? `Config::${task.symbol}`}</code>.
-              Included in the Config File.
-            </>
+            <>Constants for this task, included in the Config File.</>
           )}
         </p>
         {(task.parameters ?? []).map((parameter, i) => (
@@ -220,9 +86,10 @@ export function TaskSettings({
                   }
                 />
               </FieldLabel>
-              <FieldLabel label="C++ type">
+              <FieldLabel label="Value type">
                 <input
                   aria-label={`Parameter type ${i}`}
+                  list="config-value-types"
                   disabled={
                     !!imported?.parameters?.some(
                       (p) => p.name === parameter.name,
@@ -319,61 +186,115 @@ export function TaskSettings({
           Add setting
         </button>
       </section>
-      <FieldLabel label="Stack size (bytes)">
-        <input
-          aria-label="Stack size"
-          type="number"
-          min={1024}
-          step={1024}
-          disabled={!!task.stackExpression}
-          value={task.stackExpression ? '' : task.stackBytes}
-          onChange={(e) =>
-            updateTask((t) => (t.stackBytes = Number(e.target.value)))
-          }
-        />
-      </FieldLabel>
-      {task.stackExpression !== undefined && (
-        <FieldLabel label="Stack expression">
+      <details className="advanced-settings">
+        <summary>Advanced task settings</summary>
+        <p className="info-note">
+          Config namespace:{' '}
+          <code>{task.configNamespace ?? `Config::${task.symbol}`}</code>
+        </p>
+        <p className="info-note">
+          Code names are generated from the task name and stay stable after
+          export.
+        </p>
+        <FieldLabel label="C++ symbol" hint="Used in namespace and file names">
           <input
-            aria-label="Stack expression"
+            aria-label="Task C++ symbol"
+            disabled={!!imported || task.codeNamesLocked}
             className="mono"
-            value={task.stackExpression}
+            value={task.symbol}
             onChange={(e) =>
               updateTask((t) => {
-                t.stackExpression = e.target.value || undefined;
+                t.symbol = e.target.value;
+                t.codeNamesManual = true;
               })
             }
           />
         </FieldLabel>
-      )}
-      <FieldLabel label="Core affinity">
-        <select
-          aria-label="Core affinity"
-          disabled={!!task.coreExpression}
-          value={task.core}
-          onChange={(e) =>
-            updateTask((t) => (t.core = e.target.value as Task['core']))
-          }
-        >
-          <option value="any">Any core</option>
-          <option value="0">Core 0</option>
-          <option value="1">Core 1</option>
-        </select>
-      </FieldLabel>
-      {task.coreExpression !== undefined && (
-        <FieldLabel label="Core expression">
+        <FieldLabel label="Priority">
           <input
-            aria-label="Core expression"
-            className="mono"
-            value={task.coreExpression}
+            aria-label="Task priority"
+            type="number"
+            min={1}
+            max={24}
+            disabled={!!task.priorityExpression}
+            value={task.priorityExpression ? '' : task.priority}
             onChange={(e) =>
               updateTask((t) => {
-                t.coreExpression = e.target.value || undefined;
+                t.priority = Number(e.target.value);
               })
             }
           />
         </FieldLabel>
-      )}
+        {task.priorityExpression !== undefined && (
+          <FieldLabel label="Priority expression">
+            <input
+              aria-label="Priority expression"
+              className="mono"
+              value={task.priorityExpression}
+              onChange={(e) =>
+                updateTask((t) => {
+                  t.priorityExpression = e.target.value || undefined;
+                })
+              }
+            />
+          </FieldLabel>
+        )}
+        <FieldLabel label="Stack size (bytes)">
+          <input
+            aria-label="Stack size"
+            type="number"
+            min={1024}
+            step={1024}
+            disabled={!!task.stackExpression}
+            value={task.stackExpression ? '' : task.stackBytes}
+            onChange={(e) =>
+              updateTask((t) => (t.stackBytes = Number(e.target.value)))
+            }
+          />
+        </FieldLabel>
+        {task.stackExpression !== undefined && (
+          <FieldLabel label="Stack expression">
+            <input
+              aria-label="Stack expression"
+              className="mono"
+              value={task.stackExpression}
+              onChange={(e) =>
+                updateTask((t) => {
+                  t.stackExpression = e.target.value || undefined;
+                })
+              }
+            />
+          </FieldLabel>
+        )}
+        <FieldLabel label="Core affinity">
+          <select
+            aria-label="Core affinity"
+            disabled={!!task.coreExpression}
+            value={task.core}
+            onChange={(e) =>
+              updateTask((t) => (t.core = e.target.value as Task['core']))
+            }
+          >
+            <option value="any">Any core</option>
+            <option value="0">Core 0</option>
+            <option value="1">Core 1</option>
+          </select>
+        </FieldLabel>
+        {task.coreExpression !== undefined && (
+          <FieldLabel label="Core expression">
+            <input
+              aria-label="Core expression"
+              className="mono"
+              value={task.coreExpression}
+              onChange={(e) =>
+                updateTask((t) => {
+                  t.coreExpression = e.target.value || undefined;
+                })
+              }
+            />
+          </FieldLabel>
+        )}
+      </details>
     </div>
   );
 }

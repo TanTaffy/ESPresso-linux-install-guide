@@ -177,7 +177,7 @@ test('export, implement, import, add GPS and re-export retains config, code, bui
   const adcPath = path.join(first, 'main/tasks/adc_task.cpp');
   let adcSource = fs.readFileSync(adcPath, 'utf8');
   adcSource = adcSource.replace(
-    '    // TODO: Implement this step.',
+    '    // TODO: Sample',
     '    const int sample = 17;\n    (void)sample;',
   );
   adcSource +=
@@ -606,19 +606,23 @@ test('whole source bytes survive reimport while new tasks and queues update the 
     path.join(second, 'main/CMakeLists.txt'),
     'utf8',
   );
+  assert.match(
+    build,
+    /include\("\$\{CMAKE_CURRENT_LIST_DIR\}\/generated\/project\.cmake"\)/,
+  );
   const checkDir = fs.mkdtempSync(path.join(os.tmpdir(), 'espresso-cmake-'));
   const script = path.join(checkDir, 'check.cmake');
   fs.writeFileSync(
     script,
     'cmake_minimum_required(VERSION 3.16)\nfunction(idf_component_register)\n    cmake_parse_arguments(COMP "" "" "SRCS;PRIV_REQUIRES;INCLUDE_DIRS" ${ARGN})\n    if(NOT "tasks/gps_task.cpp" IN_LIST COMP_SRCS OR NOT "shared/samples.cpp" IN_LIST COMP_SRCS)\n        message(FATAL_ERROR "Missing generated source registration")\n    endif()\nendfunction()\n' +
-      build,
+      `include("${path.join(second, 'main/CMakeLists.txt').replaceAll('\\', '/')}")\n`,
   );
   const cmake = fs
     .readFileSync('build/native/CMakeCache.txt', 'utf8')
     .match(/^CMAKE_COMMAND:INTERNAL=(.+)$/m)[1]
     .trim();
   execFileSync(cmake, ['-P', script], {
-    cwd: path.join(second, 'main'),
+    cwd: checkDir,
     windowsHide: true,
   });
 });

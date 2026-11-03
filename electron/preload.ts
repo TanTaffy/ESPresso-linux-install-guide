@@ -34,6 +34,10 @@ const api: DesktopApi = {
   empty: () => ipcRenderer.invoke('empty'),
   newDocument: (project) => ipcRenderer.invoke('new-document', project),
   revealExport: () => ipcRenderer.invoke('reveal-export'),
+  chooseExportFolder: (name) =>
+    ipcRenderer.invoke('choose-export-folder', name),
+  developerTools: () => ipcRenderer.invoke('developer-tools'),
+  openExportInEditor: () => ipcRenderer.invoke('open-export-in-editor'),
   templates: () => ipcRenderer.invoke('templates'),
   saveTemplate: (template) => ipcRenderer.invoke('save-template', template),
   deleteTemplate: (id) => ipcRenderer.invoke('delete-template', id),

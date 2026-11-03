@@ -6,10 +6,12 @@ import {
   Copy,
   FileCode2,
   FolderOpen,
+  Code2,
 } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { FieldLabel } from '../components/FieldLabel';
 import type { EditorController } from '../editor/useEditor';
-import type { Project } from '../model';
+import type { Project, DeveloperTools } from '../model';
 
 type Props = Pick<
   EditorController,
@@ -22,6 +24,9 @@ type Props = Pick<
   | 'setError'
   | 'busy'
   | 'exportPath'
+  | 'exportParent'
+  | 'chooseExportFolder'
+  | 'editStep'
   | 'notify'
   | 'run'
   | 'change'
@@ -41,6 +46,9 @@ export function ExportScreen({
   setError,
   busy,
   exportPath,
+  exportParent,
+  chooseExportFolder,
+  editStep,
   notify,
   run,
   change,
@@ -50,13 +58,53 @@ export function ExportScreen({
   warnings,
   selectedFile,
 }: Props) {
+  const [tools, setTools] = useState<DeveloperTools | null>(null);
+  useEffect(() => {
+    void window.espresso
+      .developerTools()
+      .then(setTools)
+      .catch((e) => setError(String(e)));
+  }, [setError]);
   if (!project) return null;
+  const userFiles = Object.keys(preview?.files ?? {}).filter((path) =>
+    /^main\/(tasks|config)\//.test(path),
+  );
+  const supportFiles = Object.keys(preview?.files ?? {}).filter(
+    (path) => !userFiles.includes(path),
+  );
+  const unfinished = project.nodes.flatMap((task) =>
+    task.kind !== 'task'
+      ? []
+      : (['setup', 'loop'] as const).flatMap((phase) =>
+          task[phase]
+            .filter(
+              (step) =>
+                step.requiresCode ||
+                (step.kind === 'placeholder' &&
+                  !Object.values(project.sourceFiles ?? {}).some(
+                    (file) => file.taskId === task.id,
+                  ) &&
+                  preview?.stepStates?.[step.id] !== 'Code present'),
+            )
+            .map((step) => ({ task, phase, step })),
+        ),
+  );
+  const buildCommands = [
+    ...(tools?.idfPath
+      ? [`. '${tools.idfPath.replaceAll("'", "''")}\\export.ps1'`]
+      : []),
+    ...(exportPath
+      ? [`Set-Location -LiteralPath '${exportPath.replaceAll("'", "''")}'`]
+      : []),
+    `idf.py set-target ${project.target}`,
+    'idf.py build',
+  ].join('\n');
   return (
     <>
       <div className="page-heading">
         <div>
           <h1>Export ESP-IDF skeleton</h1>
-          <p>Task stubs, shared structs and ESP-IDF project files</p>
+          <p>Review your task code, then export and build</p>
         </div>
         <button
           className="button primary"
@@ -64,7 +112,11 @@ export function ExportScreen({
           onClick={() => void exportProject()}
         >
           <ArrowDownToLine size={16} />
-          Choose folder & export
+          {busy
+            ? 'Exporting…'
+            : exportParent
+              ? 'Export skeleton'
+              : 'Choose output folder'}
         </button>
       </div>
       <div className="export-settings">
@@ -105,12 +157,67 @@ export function ExportScreen({
           ) : (
             <>
               <Check size={15} />
-              Ready to export
+              Structure valid
               {warnings.length ? ` · ${warnings.length} warnings` : ''}
             </>
           )}
         </span>
       </div>
+      <div className="export-destination">
+        <span>
+          {exportParent ? (
+            <>
+              New folder:{' '}
+              <strong>
+                {exportParent.replace(/[\\/]$/, '')}\{project.name}
+              </strong>
+            </>
+          ) : (
+            <>
+              Choose a parent folder. ESPresso will create a new{' '}
+              <strong>{project.name}</strong> folder inside it.
+            </>
+          )}
+        </span>
+        {exportParent && (
+          <button
+            className="text-button"
+            disabled={busy}
+            onClick={() => void chooseExportFolder()}
+          >
+            Change folder
+          </button>
+        )}
+      </div>
+      <details className="implementation-review">
+        <summary>
+          {unfinished.length
+            ? `${unfinished.length} implementation steps to fill in`
+            : 'Implementation review'}{' '}
+          · skeleton export is available
+        </summary>
+        <p className="info-note">
+          Structure checks do not verify hardware code. Fill in implementation
+          steps in your editor and review template code before running on a
+          board.
+        </p>
+        {unfinished.map(({ task, phase, step }) => (
+          <button
+            className="text-button"
+            key={step.id}
+            onClick={() => editStep(task.id, phase, step.id)}
+          >
+            {task.name} · {phase} · {step.name}
+            <ChevronRight size={13} />
+          </button>
+        ))}
+        {!!project.sourceFiles && (
+          <p className="info-note">
+            Imported task implementations are preserved. Review them in your
+            editor.
+          </p>
+        )}
+      </details>
       {preview && preview.diagnostics.length > 0 && (
         <div className="diagnostics">
           {preview.diagnostics.map((d, i) => (
@@ -139,6 +246,19 @@ export function ExportScreen({
           </span>
           <button
             className="button"
+            disabled={!tools?.editorPath || busy}
+            title={
+              !tools?.editorPath
+                ? 'VS Code was not found. Open the folder in your usual editor.'
+                : undefined
+            }
+            onClick={() => void run(() => window.espresso.openExportInEditor())}
+          >
+            <Code2 size={15} />
+            Open in VS Code
+          </button>
+          <button
+            className="button"
             onClick={() => void run(() => window.espresso.revealExport())}
           >
             <FolderOpen size={15} />
@@ -146,18 +266,61 @@ export function ExportScreen({
           </button>
         </div>
       )}
+      {exportPath && (
+        <details className="build-guide" open>
+          <summary>Build your program</summary>
+          <p className="info-note">
+            {tools?.idfPath
+              ? `ESP-IDF found: ${tools.idfPath}.`
+              : 'ESP-IDF was not found in the environment or the standard Espressif frameworks folder. Install ESP-IDF, then open its terminal.'}{' '}
+            SDK detection does not check toolchain activation. Run these
+            commands in PowerShell
+            {tools?.idfPath ? '' : ' after activating ESP-IDF'}:
+          </p>
+          <div className="build-commands">
+            <pre>{buildCommands}</pre>
+            <button
+              className="button"
+              onClick={() =>
+                void navigator.clipboard
+                  .writeText(buildCommands)
+                  .then(() => notify('Build commands copied'))
+                  .catch((e) => setError(String(e)))
+              }
+            >
+              <Copy size={14} />
+              Copy commands
+            </button>
+          </div>
+          <p className="info-note">
+            Continue editing in this folder. Use “Import edited code” and choose
+            espresso.project.json when returning to ESPresso; “Open layout”
+            restores the diagram only.
+          </p>
+        </details>
+      )}
       <div className="export-layout">
         <aside className="file-list">
           <h3>{Object.keys(preview?.files ?? {}).length} project files</h3>
-          {Object.keys(preview?.files ?? {}).map((path) => (
-            <button
-              className={selectedFile === path ? 'active' : ''}
-              key={path}
-              onClick={() => setFile(path)}
-            >
-              <FileCode2 size={15} />
-              <span>{path}</span>
-            </button>
+          {(
+            [
+              ['Your code', userFiles],
+              ['Generated support', supportFiles],
+            ] as const
+          ).map(([title, paths]) => (
+            <section key={title}>
+              <h4>{title}</h4>
+              {paths.map((path) => (
+                <button
+                  className={selectedFile === path ? 'active' : ''}
+                  key={path}
+                  onClick={() => setFile(path)}
+                >
+                  <FileCode2 size={15} />
+                  <span>{path}</span>
+                </button>
+              ))}
+            </section>
           ))}
         </aside>
         <main className="code-preview">

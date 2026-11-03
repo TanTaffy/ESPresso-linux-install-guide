@@ -69,7 +69,7 @@ export function DiagramNode({ id, data, selected }: NodeProps<FlowNode>) {
               ? 'Latest-value mailbox'
               : n.delivery === 'queue'
                 ? 'FIFO queue'
-                : 'Shared struct'}
+                : 'Latest value'}
           </span>
           <button
             className="icon-button nodrag"
@@ -82,7 +82,7 @@ export function DiagramNode({ id, data, selected }: NodeProps<FlowNode>) {
         {data.imported && (
           <span className="imported-badge">Imported · Fixed definition</span>
         )}
-        <h3>{n.typeName || 'Unnamed struct'}</h3>
+        <h3>{n.name || 'Unnamed data'}</h3>
         <div className="node-symbol">shared::{n.symbol}</div>
         <div className="node-fields">
           {fields.slice(0, 6).map((f) => (

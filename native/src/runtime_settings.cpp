@@ -167,6 +167,8 @@ bool builtin_setting(const json &task, const std::string &name)
 void import_runtime_setting(json &task, const std::string &name, const std::string &value)
 {
     task["configValues"][name] = value;
+    if (name == "PERIOD_MS")
+        task.erase("frequencyHz");
     const std::string field = name == "PERIOD_MS"  ? "periodMs"
                               : name == "PRIORITY" ? "priority"
                                                    : "stackBytes";

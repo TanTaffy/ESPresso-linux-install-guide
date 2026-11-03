@@ -19,10 +19,12 @@ import type {
 } from '../src/model';
 import { createNativeClient } from './native-client';
 import { openFolder } from './open-folder';
+import { developerTools, openInEditor } from './developer-tools';
 
 let window: BrowserWindow;
 let currentPath: string | null = null;
 let lastExport: string | null = null;
+let exportParent: string | null = null;
 let latest: Project | null = null;
 let baseline: Project | null = null;
 let dirty = false,
@@ -305,10 +307,12 @@ app.whenReady().then(() => {
     return { project: result.project, path: currentPath };
   });
   register('export', async (project: Project) => {
-    const answer = await dialog.showOpenDialog(window, {
-      title: `Choose parent folder for ${project.name}`,
-      properties: ['openDirectory', 'createDirectory'],
-    });
+    const answer = exportParent
+      ? { canceled: false, filePaths: [exportParent] }
+      : await dialog.showOpenDialog(window, {
+          title: `Choose parent folder for ${project.name}`,
+          properties: ['openDirectory', 'createDirectory'],
+        });
     if (answer.canceled) return null;
     const result = await native(
       {
@@ -319,7 +323,25 @@ app.whenReady().then(() => {
       120000,
     );
     lastExport = result.path;
+    exportParent = null;
     return result;
+  });
+  register('choose-export-folder', async (name: string) => {
+    if (typeof name !== 'string' || !/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(name))
+      throw new Error('Choose a valid project name first.');
+    const answer = await dialog.showOpenDialog(window, {
+      title: `Choose parent folder — ESPresso creates a new ${name} folder inside`,
+      defaultPath: lastExport ? path.dirname(lastExport) : undefined,
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    if (answer.canceled || !answer.filePaths[0]) return null;
+    exportParent = answer.filePaths[0];
+    return exportParent;
+  });
+  register('developer-tools', developerTools);
+  register('open-export-in-editor', async () => {
+    if (!lastExport) throw new Error('Export your project first.');
+    await openInEditor(lastExport);
   });
   register('example', async () => {
     const r = await native({
@@ -333,6 +355,7 @@ app.whenReady().then(() => {
     return r.project;
   });
   register('new-document', (project: Project) => {
+    exportParent = null;
     currentPath = null;
     dirty = false;
     latest = project;
@@ -346,6 +369,10 @@ app.whenReady().then(() => {
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', (event, url) => {
     if (url !== pathToFileURL(entry).href) event.preventDefault();
+  });
+  window.webContents.on('will-prevent-unload', () => {
+    // A cancelled library-form close must leave normal save-on-close checks active.
+    closing = false;
   });
   window.on('close', (event) => {
     if (closing) return;

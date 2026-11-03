@@ -95,6 +95,39 @@ std::string field_literal(const json &f)
 }
 namespace
 {
+// Wrap generated prose only. Template bodies and preserved source stay verbatim.
+std::string prose_comment(const std::string &text, const std::string &indent = "",
+                          const std::string &label = "")
+{
+    std::istringstream lines(text);
+    std::string out, line;
+    bool first = true;
+    while (std::getline(lines, line))
+    {
+        const std::string prefix = indent + "// ";
+        std::string current = prefix + (first ? label : "");
+        std::istringstream words(line);
+        std::string word;
+        bool any = false;
+        while (words >> word)
+        {
+            if (any && current.size() + 1 + word.size() > 96)
+            {
+                out += current + "\n";
+                current = prefix + (first ? std::string(label.size(), ' ') : "");
+                any = false;
+            }
+            if (any)
+                current += ' ';
+            current += word;
+            any = true;
+        }
+        out += any ? current + "\n" : indent + "//\n";
+        first = false;
+    }
+    return out;
+}
+
 std::string payload_comments(const json &p, const json &node, const std::string &indent)
 {
     std::string out = indent + "// " + node["typeName"].get<std::string>() +
@@ -179,14 +212,13 @@ std::string lifecycle_comment(const json &task, const std::map<std::string, json
         return "// Runs once per pending task notification (notification index 0).\n";
     if (trigger == "queues")
         return "// Runs when any selected queue or mailbox has a message.\n"
-               "// event identifies the input and contains its message, already removed from that "
-               "input.\n";
+               "// event identifies the input and contains its message, already removed from that input.\n";
     if (trigger == "queue")
         return "// Runs when a message arrives from " +
                comment(data.at(task.at("queueId"))["symbol"]) +
                ".\n// event is that message, already removed from the queue or mailbox.\n";
-    return "// Runs repeatedly at the period configured by " + config_namespace(task) +
-           "::PERIOD_MS (milliseconds).\n";
+    return prose_comment("Runs repeatedly at the period configured by " + config_namespace(task) +
+                         "::PERIOD_MS (milliseconds).");
 }
 } // namespace
 
@@ -244,7 +276,7 @@ Files generate(const json &p, json *diagnostics)
             cmake += " " + lib["name"].get<std::string>();
     files["main/generated/project.cmake"] = cmake + ")\n";
     files["main/CMakeLists.txt"] =
-        "include(\"generated/project.cmake\")\n\nidf_component_register(\n"
+        "include(\"${CMAKE_CURRENT_LIST_DIR}/generated/project.cmake\")\n\nidf_component_register(\n"
         "    SRCS ${ESPRESSO_SOURCES}\n    INCLUDE_DIRS \".\"\n"
         "    PRIV_REQUIRES ${ESPRESSO_REQUIRES}\n)\n";
     const auto build_files = p.value("buildFiles", json::object());
@@ -443,24 +475,17 @@ Files generate(const json &p, json *diagnostics)
             source += base_code(p, region_key(std::string(phase) + "vars", t["id"]), "");
             for (const auto &step : t[phase])
             {
-                source += "    // " + comment(step["name"]) + "\n";
                 const std::string kind = step["kind"];
+                if (kind != "placeholder")
+                    source += prose_comment(comment(step["name"]), "    ");
                 if (kind == "placeholder")
                 {
-                    const auto body_start = source.size();
-                    std::istringstream lines(step["note"].get<std::string>());
-                    std::string line;
-                    bool any = false;
-                    while (std::getline(lines, line))
-                    {
-                        source += "    // TODO: " + comment(line) + "\n";
-                        any = true;
-                    }
-                    if (!any)
-                        source += "    // TODO: Implement this step.\n";
-                    const auto body = source.substr(body_start);
-                    source.resize(body_start);
-                    source += base_code(p, region_key("step", step["id"]), body);
+                    const auto body = base_code(p, region_key("step", step["id"]), "");
+                    const bool implemented = contains_code(body);
+                    source += prose_comment(comment(step["name"]), "    ", implemented ? "" : "TODO: ");
+                    if (!implemented)
+                        source += prose_comment(step["note"], "    ");
+                    source += body;
                 }
                 else if (kind == "notify")
                 {
@@ -480,9 +505,9 @@ Files generate(const json &p, json *diagnostics)
                             std::string(phase) == "setup"
                                 ? "skip remaining setup steps; loop() still starts."
                                 : "skip remaining steps in this loop iteration.";
-                        source += "    // Timeout: " + config_namespace(t) +
+                        source += prose_comment("Timeout: " + config_namespace(t) +
                                   "::" + timeout_setting(t, phase, step) +
-                                  " (ms; 0 = no wait, -1 = wait forever).\n";
+                                  " (ms; 0 = no wait, -1 = wait forever).", "    ");
                         if (kind == "receive")
                         {
                             std::string received = "received";
@@ -552,6 +577,9 @@ Files generate(const json &p, json *diagnostics)
     auto layout = p;
     layout["generatorCredit"] = skeleton_credit;
     files["espresso.layout.json"] = layout.dump(2) + "\n";
+    files[".vscode/settings.json"] =
+        "//" + std::string(skeleton_credit) +
+        "\n\n{\n  \"C_Cpp.default.compileCommands\": \"${workspaceFolder}/build/compile_commands.json\"\n}\n";
     files["README.md"] =
         "# " + p["name"].get<std::string>() +
         "\n\nGenerated with ESPresso for ESP-IDF 5.5 or newer.\n\n1. Open this folder in your "

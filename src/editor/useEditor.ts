@@ -24,6 +24,13 @@ import {
 } from '../imported';
 import { captureTemplate, withNewline } from '../templates';
 import type { FlowNode, StepSelection, View } from './types';
+import {
+  syncCodeNames,
+  stepLabel,
+  availableSymbol,
+  sampleType,
+} from './naming';
+import { freePosition } from './placement';
 
 export function useEditor() {
   const [templates, setTemplates] = useState<TaskTemplate[]>([]);
@@ -32,7 +39,20 @@ export function useEditor() {
   const [templatePicker, setTemplatePicker] = useState(false);
   const [templateDraft, setTemplateDraft] = useState<TaskTemplate | null>(null);
   const [project, setProject] = useState<Project | null>(null),
-    [view, setView] = useState<View>('canvas');
+    [view, setViewState] = useState<View>('canvas');
+  const navigationGuard = useRef<(() => boolean) | null>(null);
+  const registerNavigationGuard = useCallback(
+    (guard: (() => boolean) | null) => {
+      navigationGuard.current = guard;
+    },
+    [],
+  );
+  function setView(next: View) {
+    if (next !== view && navigationGuard.current && !navigationGuard.current())
+      return;
+    setViewState(next);
+  }
+  const [projectSetup, setProjectSetup] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>('task-adc'),
     [stepSelection, setStepSelection] = useState<StepSelection | null>(null);
   const [nodeDimensions, setNodeDimensions] = useState<
@@ -48,6 +68,7 @@ export function useEditor() {
     [savedPath, setSavedPath] = useState<string | null>(null),
     [busy, setBusy] = useState(false),
     [exportPath, setExportPath] = useState('');
+  const [exportParent, setExportParent] = useState('');
   const [undo, setUndo] = useState<Project[]>([]),
     [redo, setRedo] = useState<Project[]>([]),
     [confirm, setConfirm] = useState<
@@ -56,6 +77,27 @@ export function useEditor() {
   const flow = useRef<ReactFlowInstance<FlowNode> | null>(null),
     dragHistory = useRef(false);
   const fitPending = useRef(false);
+  const exportedNames = useRef(
+    new Map<string, { symbol: string; typeName?: string }>(),
+  );
+  function retainExportedNames(p: Project) {
+    for (const node of p.nodes) {
+      const names = exportedNames.current.get(node.id);
+      if (!names) continue;
+      const oldSymbol = node.symbol;
+      node.symbol = names.symbol;
+      node.codeNamesLocked = true;
+      if (node.kind === 'struct') {
+        node.typeName = names.typeName!;
+        for (const t of p.nodes)
+          if (t.kind === 'task' && !importedNode(p, t.id))
+            for (const step of [...t.setup, ...t.loop])
+              if (step.structId === node.id && step.localName === oldSymbol)
+                step.localName = names.symbol;
+      }
+    }
+    return p;
+  }
   const [fitRevision, setFitRevision] = useState(0);
   const selected = project?.nodes.find((n) => n.id === selectedId),
     tasks = project?.nodes.filter((n): n is Task => n.kind === 'task') ?? [],
@@ -108,6 +150,7 @@ export function useEditor() {
       .then((result) => {
         if (!alive) return;
         setProject(result.project);
+        setProjectSetup(!result.project.nodes.length);
         setSelectedId(
           result.project.nodes.find((n) => n.kind === 'task')?.id ?? null,
         );
@@ -180,6 +223,7 @@ export function useEditor() {
     if (!project) return;
     const next = structuredClone(project);
     edit(next);
+    retainExportedNames(next);
     const violation = importViolation(next);
     if (violation) {
       notify(violation);
@@ -193,7 +237,11 @@ export function useEditor() {
   function updateNode(id: string, edit: (node: LayoutNode) => void) {
     change((p) => {
       const n = p.nodes.find((n) => n.id === id);
-      if (n) edit(n);
+      if (n) {
+        const before = structuredClone(n);
+        edit(n);
+        syncCodeNames(p, before, n);
+      }
     });
   }
   function updateTask(edit: (t: Task) => void) {
@@ -211,19 +259,23 @@ export function useEditor() {
   function undoAction() {
     if (!project || !undo.length) return;
     setRedo((h) => [...h, project]);
-    setProject(undo.at(-1)!);
+    setProject(retainExportedNames(structuredClone(undo.at(-1)!)));
     setUndo((h) => h.slice(0, -1));
     setDirty(true);
   }
   function redoAction() {
     if (!project || !redo.length) return;
     setUndo((h) => [...h, project]);
-    setProject(redo.at(-1)!);
+    setProject(retainExportedNames(structuredClone(redo.at(-1)!)));
     setRedo((h) => h.slice(0, -1));
     setDirty(true);
   }
   async function save(saveAs = false) {
     if (!project) return;
+    if (project.name === 'untitled-project') {
+      setProjectSetup(true);
+      return;
+    }
     const result = await run(() => window.espresso.save(project, saveAs));
     if (result) {
       setSavedPath(result.path);
@@ -256,11 +308,13 @@ export function useEditor() {
             : await window.espresso.example();
         await window.espresso.newDocument(p);
         setProject(p);
+        setProjectSetup(action === 'new');
         setSavedPath(null);
         setSelectedId(p.nodes[0]?.id ?? null);
         notify(action === 'new' ? 'New layout' : 'Pressure example loaded');
       }
       setUndo([]);
+      exportedNames.current.clear();
       fitPending.current = true;
       setFitRevision((value) => value + 1);
       setRedo([]);
@@ -268,10 +322,12 @@ export function useEditor() {
       setStepSelection(null);
       setView('canvas');
       setExportPath('');
+      setExportParent('');
     });
     setConfirm(null);
   }
   function requestDocument(action: 'new' | 'example' | 'open' | 'import') {
+    if (navigationGuard.current && !navigationGuard.current()) return;
     if (dirty) setConfirm(action);
     else void replaceDocument(action);
   }
@@ -300,11 +356,12 @@ export function useEditor() {
   ) {
     const { i, symbol } = uniqueSymbol(kind === 'queue' ? 'struct' : kind);
     const id = uid();
-    const pos = position ??
+    const origin = position ??
       flow.current?.screenToFlowPosition({
         x: window.innerWidth * 0.43,
         y: window.innerHeight * 0.4,
       }) ?? { x: 80, y: 80 };
+    const pos = freePosition(project?.nodes ?? [], nodeDimensions, origin);
     const node: LayoutNode =
       kind === 'task'
         ? {
@@ -323,20 +380,74 @@ export function useEditor() {
         : {
             id,
             kind: 'struct',
-            name: `Shared data ${i}`,
+            name: `Data ${i}`,
             symbol,
-            typeName: `SharedData${i}`,
+            typeName: `Data${i}Sample`,
             position: pos,
             fields: [],
             ...(kind === 'queue'
-              ? { delivery: 'queue' as const, capacity: 8, name: `Queue ${i}` }
+              ? { delivery: 'queue' as const, capacity: 8 }
               : {}),
           };
     change((p) => p.nodes.push(node));
     setSelectedId(id);
     setStepSelection(null);
     setView('canvas');
-    notify(`${kind === 'task' ? 'Task' : 'Shared struct'} added`);
+    fitPending.current = true;
+    notify(`${kind === 'task' ? 'Task' : 'Data'} added`);
+  }
+  function addTaskData(direction: 'input' | 'output') {
+    if (!project || !task) return;
+    const id = uid(),
+      name = `${task.name} ${direction === 'output' ? 'output' : 'input'}`;
+    const symbol = availableSymbol(project, name);
+    const data: SharedStruct = {
+      id,
+      kind: 'struct',
+      name,
+      symbol,
+      typeName: sampleType(symbol),
+      fields: [],
+      delivery: 'queue',
+      capacity: 8,
+      position: freePosition(project.nodes, nodeDimensions, {
+        x: task.position.x + (direction === 'output' ? 360 : -360),
+        y: task.position.y,
+      }),
+    };
+    change((p) => {
+      p.nodes.push(data);
+      const target = p.nodes.find((n) => n.id === task.id);
+      if (target?.kind !== 'task') return;
+      if (direction === 'input' && !importedNode(p, target.id)) {
+        if (target.trigger === 'queues')
+          target.queueIds = [...(target.queueIds ?? []), id];
+        else if (target.trigger === 'queue' && target.queueId) {
+          target.trigger = 'queues';
+          target.queueIds = [target.queueId, id];
+          delete target.queueId;
+        } else {
+          target.trigger = 'queue';
+          target.queueId = id;
+        }
+      } else
+        target.loop.push({
+          id: uid(),
+          kind: direction === 'output' ? 'send' : 'receive',
+          name: stepLabel(direction === 'output' ? 'send' : 'receive', data),
+          note: '',
+          structId: id,
+          localName: symbol,
+          timeoutMs: 0,
+          onFailure: 'return',
+          ...(importedNode(p, target.id) ? { requiresCode: true } : {}),
+        });
+    });
+    setSelectedId(id);
+    setStepSelection(null);
+    setView('struct');
+    fitPending.current = true;
+    notify('Data connected. Name it and add the fields in each sample.');
   }
   async function saveTemplate(template: TaskTemplate) {
     template = structuredClone(template);
@@ -370,11 +481,12 @@ export function useEditor() {
     const template = templates.find((t) => t.id === id);
     if (!project || !template) return;
     const base = project;
-    const pos = position ??
+    const origin = position ??
       flow.current?.screenToFlowPosition({
         x: window.innerWidth * 0.43,
         y: window.innerHeight * 0.4,
       }) ?? { x: 80, y: 80 };
+    const pos = freePosition(project.nodes, nodeDimensions, origin);
     const result = await run(() =>
       window.espresso.instantiateTemplate(base, template, pos),
     );
@@ -386,6 +498,7 @@ export function useEditor() {
     });
     setSelectedId(result.nodes.at(-1)!.id);
     setView('canvas');
+    fitPending.current = true;
     notify(`${template.name} added`);
   }
   function newTemplate(fromTask?: Task) {
@@ -463,6 +576,11 @@ export function useEditor() {
             }
           : {}),
     };
+    if (kind !== 'placeholder' && kind !== 'notify')
+      s.name = stepLabel(
+        kind,
+        structs.find((data) => data.id === s.structId),
+      );
     updateTask((t) => t[phase].push(s));
     setStepSelection({ phase, id });
   }
@@ -474,6 +592,15 @@ export function useEditor() {
         const before = { ...s };
         delete before.requiresCode;
         edit(s);
+        if (
+          s.kind !== 'placeholder' &&
+          s.kind !== 'notify' &&
+          (s.structId !== before.structId || s.kind !== before.kind)
+        )
+          s.name = stepLabel(
+            s.kind,
+            structs.find((data) => data.id === s.structId),
+          );
         const after = { ...s };
         delete after.requiresCode;
         if (
@@ -769,11 +896,32 @@ export function useEditor() {
   }
   async function exportProject() {
     if (!project) return;
-    const result = await run(() => window.espresso.export(project));
+    if (!exportParent) {
+      await chooseExportFolder();
+      return;
+    }
+    const exported = structuredClone(project);
+    exported.nodes.forEach((node) => (node.codeNamesLocked = true));
+    const result = await run(() => window.espresso.export(exported));
     if (result) {
+      for (const node of exported.nodes)
+        exportedNames.current.set(node.id, {
+          symbol: node.symbol,
+          ...(node.kind === 'struct' ? { typeName: node.typeName } : {}),
+        });
+      setProject(exported);
+      setDirty(true);
       setExportPath(result.path);
+      setExportParent('');
       notify(`Exported ${result.fileCount} files to ${result.path}`);
     }
+  }
+  async function chooseExportFolder() {
+    if (!project) return;
+    const folder = await run(() =>
+      window.espresso.chooseExportFolder(project.name),
+    );
+    if (folder) setExportParent(folder);
   }
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -810,7 +958,10 @@ export function useEditor() {
   const selectedFile =
     preview?.files[file] !== undefined
       ? file
-      : Object.keys(preview?.files ?? {})[0];
+      : (tasks
+          .map((t) => `main/tasks/${t.symbol}_task.cpp`)
+          .find((path) => preview?.files[path] !== undefined) ??
+        Object.keys(preview?.files ?? {})[0]);
 
   return {
     templates,
@@ -826,6 +977,9 @@ export function useEditor() {
     addTemplateTask,
     newTemplate,
     project,
+    registerNavigationGuard,
+    projectSetup,
+    setProjectSetup,
     view,
     setView,
     selectedId,
@@ -844,6 +998,8 @@ export function useEditor() {
     savedPath,
     busy,
     exportPath,
+    exportParent,
+    chooseExportFolder,
     undo,
     setUndo,
     redo,
@@ -871,6 +1027,7 @@ export function useEditor() {
     editNode,
     editStep,
     addNode,
+    addTaskData,
     removeNode,
     addStep,
     changeStep,

@@ -65,6 +65,7 @@ Files queue_files(const json &node, const json &project);
 std::string event_runtime(const std::vector<json> &tasks, const std::map<std::string, json> &data);
 std::string loop_parameters(const json &task, const std::map<std::string, json> &data);
 std::string base_code(const json &project, const std::string &key, const std::string &body);
+bool contains_code(const std::string &text);
 std::string task_file_owner(const json &project, const std::string &name);
 void preserve_sources(const json &project, Files &files);
 std::string region_key(const std::string &kind, const std::string &id);

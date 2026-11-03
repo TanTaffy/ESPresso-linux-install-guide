@@ -210,10 +210,11 @@ json import_project(const fs::path &manifest)
             builds[name] = text;
             continue;
         }
-        if (snapshot || name == "README.md")
+        if (snapshot || name == "README.md" || name == ".vscode/settings.json")
         {
             require(!expected_files.count(name) || name.rfind("components/", 0) == 0 ||
-                        name == "README.md" || name == ".gitignore" || name == "sdkconfig.defaults",
+                        name == "README.md" || name == ".gitignore" || name == "sdkconfig.defaults" ||
+                        name == ".vscode/settings.json",
                     "Preserved inventory conflicts with generated output: " + name);
             extras[name] = base64_encode(text);
             continue;
