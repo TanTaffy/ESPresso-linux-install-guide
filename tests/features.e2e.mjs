@@ -132,6 +132,7 @@ try {
     }),
   ).toBeVisible();
   await tab('Templates');
+  await page.getByText('Task types folder', { exact: true }).click();
   await page
     .getByRole('button', { name: 'Open templates folder', exact: true })
     .click();

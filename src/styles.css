@@ -1461,7 +1461,6 @@ button:focus-visible {
   max-height: 320px;
   overflow: auto;
 }
-.template-layout,
 .config-layout {
   display: grid;
   grid-template-columns: minmax(250px, 0.7fr) minmax(440px, 1.6fr);
@@ -1470,6 +1469,102 @@ button:focus-visible {
   min-height: 0;
   overflow: auto;
   align-items: start;
+}
+.template-layout {
+  display: grid;
+  grid-template-columns: 290px minmax(0, 1fr);
+  gap: 24px;
+  width: calc(100% - 56px);
+  max-width: 1180px;
+  margin: 24px auto 28px;
+  min-height: 0;
+  overflow: auto;
+  align-items: start;
+}
+.template-list {
+  min-width: 0;
+}
+.template-list .library-card {
+  padding: 16px;
+  border-radius: 8px;
+  margin-bottom: 10px;
+}
+.template-list .library-select small {
+  font-size: 12px;
+  line-height: 1.6;
+}
+.template-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.template-card-footer .actions {
+  gap: 4px;
+}
+.template-card-footer .icon-button {
+  padding: 6px;
+}
+.template-empty-state {
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 350px;
+  padding: 40px 28px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  text-align: center;
+}
+.template-empty-icon {
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  margin-bottom: 20px;
+  border-radius: 16px;
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+.template-empty-state h2 {
+  font-size: 18px;
+  margin-bottom: 10px;
+}
+.template-empty-state p {
+  max-width: 350px;
+  color: var(--secondary);
+  font-size: 13px;
+  line-height: 1.7;
+  margin-bottom: 22px;
+}
+.template-empty-state .template-empty-hint {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 18px 0 0;
+}
+.template-editor-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.template-editor-heading h2 {
+  overflow-wrap: anywhere;
+}
+.template-editor-heading p {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+@media (max-width: 1100px) {
+  .template-layout {
+    grid-template-columns: 250px minmax(0, 1fr);
+    gap: 18px;
+    width: calc(100% - 36px);
+  }
 }
 .template-editor,
 .config-settings,
@@ -1505,11 +1600,9 @@ button:focus-visible {
 .template-step > .actions > input {
   flex: 1;
 }
-.template-list .actions {
-  margin-top: 14px;
-}
 .template-list .library-card.selected {
   border-color: var(--accent);
+  background: var(--accent-bg);
 }
 .config-source textarea {
   min-height: 450px;

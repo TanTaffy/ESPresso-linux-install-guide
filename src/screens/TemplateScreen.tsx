@@ -8,6 +8,8 @@ import {
   X,
   FolderOpen,
   RefreshCw,
+  ChevronRight,
+  Layers,
 } from 'lucide-react';
 import { FieldLabel } from '../components/FieldLabel';
 import { TaskSettings } from '../components/TaskSettings';
@@ -65,50 +67,33 @@ export function TemplateScreen({
       <div className="page-heading">
         <div>
           <h1>Task types</h1>
-          <p>
-            Create reusable task types for the canvas palette. Saved on this
-            computer across layouts.
-          </p>
+          <p>Save a task once. Reuse its settings and steps in any layout.</p>
         </div>
         <div className="actions">
-          <button
-            className="button"
-            disabled={busy}
-            onClick={() => void run(() => window.espresso.revealTemplates())}
-          >
-            <FolderOpen size={15} />
-            Open templates folder
-          </button>
-          <button
-            className="button"
-            disabled={busy}
-            onClick={() => void refreshTemplates()}
-          >
-            <RefreshCw size={15} />
-            Refresh templates
-          </button>
           <button className="button primary" onClick={() => newTemplate()}>
             <Plus size={15} />
             New task type
           </button>
         </div>
       </div>
-      <div className="catalog-note">
-        <code>{templateFolder}</code>
-        <span>
-          One JSON file per task type. Add or edit files here, then refresh.
-        </span>
-        {templateErrors.map((error) => (
-          <p className="catalog-error" key={error}>
-            {error}
-          </p>
-        ))}
-      </div>
+      {templateErrors.length > 0 && (
+        <div className="catalog-note" role="alert">
+          {templateErrors.map((error) => (
+            <p className="catalog-error" key={error}>
+              {error}
+            </p>
+          ))}
+        </div>
+      )}
       <div className="template-layout">
         <aside className="template-list">
+          <div className="library-section-heading">
+            <h2>Saved task types</h2>
+            <span>{templates.length}</span>
+          </div>
           {!templates.length && (
-            <p className="info-note">
-              Your saved task types will appear here and in the canvas palette.
+            <p className="library-empty-copy">
+              No task types yet. Create one to use across your layouts.
             </p>
           )}
           {templates.map((t) => (
@@ -118,40 +103,84 @@ export function TemplateScreen({
             >
               <button
                 className="library-select"
+                aria-pressed={draft?.id === t.id}
                 onClick={() => setTemplateDraft(structuredClone(t))}
               >
-                <strong className="actions">
+                <span className="library-row-title">
                   <TaskIcon icon={t.icon} size={20} />
-                  {t.name}
-                </strong>
+                  <strong>{t.name}</strong>
+                  <ChevronRight size={14} />
+                </span>
                 <small>{t.description || 'Custom task type'}</small>
               </button>
-              <div className="actions">
-                <button
-                  className="button"
-                  aria-label={`Duplicate task type ${t.name}`}
-                  onClick={() =>
-                    setTemplateDraft({
-                      ...structuredClone(t),
-                      id: uid(),
-                      name: `${t.name} copy`,
-                    })
-                  }
-                >
-                  <Copy size={13} />
-                  Duplicate
-                </button>
-                <button
-                  className="icon-button danger"
-                  disabled={busy}
-                  aria-label={`Delete task type ${t.name}`}
-                  onClick={() => void deleteTemplate(t.id)}
-                >
-                  <Trash2 size={14} />
-                </button>
+              <div className="template-card-footer">
+                <span>
+                  {t.task.setup.length + t.task.loop.length}{' '}
+                  {t.task.setup.length + t.task.loop.length === 1
+                    ? 'step'
+                    : 'steps'}
+                </span>
+                <div className="actions">
+                  <button
+                    className="icon-button"
+                    title={`Duplicate ${t.name}`}
+                    aria-label={`Duplicate task type ${t.name}`}
+                    onClick={() =>
+                      setTemplateDraft({
+                        ...structuredClone(t),
+                        id: uid(),
+                        name: `${t.name} copy`,
+                      })
+                    }
+                  >
+                    <Copy size={13} />
+                  </button>
+                  <button
+                    className="icon-button danger"
+                    disabled={busy}
+                    aria-label={`Delete task type ${t.name}`}
+                    title={`Delete ${t.name}`}
+                    onClick={() => void deleteTemplate(t.id)}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
               </div>
             </div>
           ))}
+          <details className="library-folder template-folder">
+            <summary>
+              <FolderOpen size={14} />
+              Task types folder
+            </summary>
+            <p>
+              To share task types, copy their files into this folder, then
+              refresh.
+            </p>
+            <code>{templateFolder}</code>
+            <div className="actions">
+              <button
+                className="button"
+                aria-label="Open templates folder"
+                disabled={busy}
+                onClick={() =>
+                  void run(() => window.espresso.revealTemplates())
+                }
+              >
+                <FolderOpen size={14} />
+                Open folder
+              </button>
+              <button
+                className="button"
+                aria-label="Refresh templates"
+                disabled={busy}
+                onClick={() => void refreshTemplates()}
+              >
+                <RefreshCw size={14} />
+                Refresh
+              </button>
+            </div>
+          </details>
         </aside>
         {draft ? (
           <form
@@ -162,11 +191,15 @@ export function TemplateScreen({
             }}
           >
             <div className="section-title">
-              <h2>
-                {templates.some((t) => t.id === draft.id)
-                  ? 'Edit task type'
-                  : 'New task type'}
-              </h2>
+              <div className="template-editor-heading">
+                <span className="library-source-icon">
+                  <TaskIcon icon={draft.icon} size={22} />
+                </span>
+                <div>
+                  <h2>{draft.name || 'New task type'}</h2>
+                  <p>Changes apply to new tasks you add to the canvas.</p>
+                </div>
+              </div>
               <button className="button primary" disabled={busy} type="submit">
                 <Save size={15} />
                 Save task type
@@ -451,10 +484,28 @@ export function TemplateScreen({
             </button>
           </form>
         ) : (
-          <div className="info-note">
-            Create a task type or use “Save as task type” on an existing task.
-            Changes to a type apply when you add a new task.
-          </div>
+          <section className="template-empty-state">
+            <span className="template-empty-icon">
+              <Layers size={28} strokeWidth={1.5} />
+            </span>
+            <h2>
+              {templates.length
+                ? 'Choose a task type'
+                : 'Build your task collection'}
+            </h2>
+            <p>
+              {templates.length
+                ? 'Select a task type to edit its settings and steps, or create one from scratch.'
+                : 'Keep the settings, libraries and steps you use often, ready for your next program.'}
+            </p>
+            <button className="button" onClick={() => newTemplate()}>
+              <Plus size={15} />
+              Create task type
+            </button>
+            <p className="template-empty-hint">
+              You can also use “Save as task type” on any task.
+            </p>
+          </section>
         )}
       </div>
     </>
