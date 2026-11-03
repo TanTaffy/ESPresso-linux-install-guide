@@ -343,6 +343,37 @@ try {
   const target = page.locator(
     `[data-id="${structId}"] .react-flow__handle[data-handleid="write"]`,
   );
+  // Adding a node schedules measurement and fitView. Wait for the actual port
+  // positions to settle before taking coordinates; the toast precedes that work.
+  await expect(source).toBeInViewport();
+  await expect(target).toBeInViewport();
+  await page.waitForFunction(
+    (id) => {
+      const ports = [
+        document.querySelector(
+          '[data-id="task-can"] .react-flow__handle[data-handleid="write-new"]',
+        ),
+        document.querySelector(
+          `[data-id="${id}"] .react-flow__handle[data-handleid="write"]`,
+        ),
+      ];
+      if (ports.some((port) => !port)) return false;
+      const positions = JSON.stringify(
+        ports.map((port) => {
+          const r = port.getBoundingClientRect();
+          return [r.x, r.y, r.width, r.height];
+        }),
+      );
+      const previous = window.espressoDragGeometry;
+      window.espressoDragGeometry = {
+        positions,
+        frames: previous?.positions === positions ? previous.frames + 1 : 0,
+      };
+      return window.espressoDragGeometry.frames >= 6;
+    },
+    structId,
+    { polling: 'raf' },
+  );
   const sb = await source.boundingBox(),
     tb = await target.boundingBox();
   await page.mouse.move(sb.x + sb.width / 2, sb.y + sb.height / 2);
