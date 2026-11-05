@@ -47,7 +47,11 @@ int main()
 {
     check(library_probe() == 9);
     espresso::tasks::adc::loop();
+#ifdef TAIL_SEND
+    check(calls == std::vector<std::string>{"input", "original body", "output"});
+#else
     check(calls == std::vector<std::string>{"input", "original body", "output", "notification"});
+#endif
     calls.clear(); available = false;
     espresso::tasks::adc::loop();
     check(calls == std::vector<std::string>{"input"});

@@ -138,19 +138,17 @@ test('generated files carry the credit, with stable coffee puns only on task sou
   assert.equal(handwritten.split(credit).length - 1, 1);
 });
 
-test('skeleton identifies editable task areas and generated support without changing older project imports', () => {
+test('skeleton keeps task comments concise and identifies generated support', () => {
   const p = project();
   p.nodes = p.nodes.slice(0, 1);
   const preview = request({ op: 'preview', project: p });
   const task = preview.files['main/tasks/worker0_task.cpp'];
-  assert.match(task, /USER FILE/);
-  for (const label of [
-    'USER INCLUDES',
-    'USER HELPERS',
-    'USER STATE',
-    'USER LOCALS',
-  ])
-    assert.ok(task.includes(label));
+  assert.doesNotMatch(
+    task,
+    /ESPresso: USER|Implement task logic here|Add .* below/,
+  );
+  assert.match(task, /\/\/ Runs once\.\nvoid setup\(\)/);
+  assert.match(task, /\/\/ Runs repeatedly\.\nvoid loop\(\)/);
   assert.match(preview.files['main/tasks/worker0_task.hpp'], /GENERATED FILE/);
   assert.match(
     preview.files['main/generated/task_runtime.cpp'],

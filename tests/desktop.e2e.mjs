@@ -138,11 +138,36 @@ try {
     .getByRole('button', { name: 'Canvas', exact: true })
     .click();
   const adc = page.getByTestId('node-task-adc');
+  await page.waitForFunction(
+    () => {
+      const node = document.querySelector('[data-testid="node-task-adc"]');
+      if (!node) return false;
+      const r = node.getBoundingClientRect();
+      const position = JSON.stringify([r.x, r.y, r.width, r.height]);
+      const previous = window.espressoTaskDragGeometry;
+      window.espressoTaskDragGeometry = {
+        position,
+        frames: previous?.position === position ? previous.frames + 1 : 0,
+      };
+      return window.espressoTaskDragGeometry.frames >= 6;
+    },
+    undefined,
+    { polling: 'raf' },
+  );
   const before = await adc.boundingBox();
-  await page.mouse.move(before.x + 120, before.y + 50);
+  const positionBefore = await adc
+    .locator('..')
+    .evaluate((node) => node.style.transform);
+  const grip = await adc.locator('header .node-type').boundingBox();
+  const dragX = grip.x + grip.width / 2,
+    dragY = grip.y + grip.height / 2;
+  await page.mouse.move(dragX, dragY);
   await page.mouse.down();
-  await page.mouse.move(before.x + 165, before.y + 95, { steps: 15 });
+  await page.mouse.move(dragX + 45, dragY + 45, { steps: 15 });
   await page.mouse.up();
+  await expect
+    .poll(() => adc.locator('..').evaluate((node) => node.style.transform))
+    .not.toBe(positionBefore);
   const after = await adc.boundingBox();
   assert.ok(after.y > before.y + 20, 'Task should drag on canvas');
   await page.getByRole('button', { name: 'Edit ADC', exact: true }).click();

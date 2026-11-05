@@ -252,6 +252,71 @@ function placed(id, kind, data, localName, placement) {
   };
 }
 
+test('imported send connectors use plain calls for mailboxes and final FIFO sends', () => {
+  const { p: original } = fixture();
+  for (const delivery of ['mailbox', 'queue'])
+    for (const placement of ['start', 'end'])
+      for (const onFailure of ['return', 'continue', 'assert'])
+        for (const followed of [false, true]) {
+          const p = structuredClone(original);
+          p.nodes.push({
+            id: 'messages',
+            kind: 'struct',
+            name: 'Messages',
+            symbol: 'messages',
+            typeName: 'Message',
+            position: { x: 0, y: 0 },
+            delivery,
+            ...(delivery === 'queue' ? { capacity: 1 } : {}),
+            fields: [
+              {
+                id: 'message-value',
+                name: 'value',
+                type: 'int32_t',
+                initialValue: '0',
+              },
+            ],
+          });
+          p.nodes[0].loop.push({
+            ...placed('output', 'send', 'messages', 'outgoing', placement),
+            name: 'Send messages',
+            onFailure,
+          });
+          if (followed)
+            p.nodes[0].loop.push(
+              placed('after-output', 'write', 'samples', 'after', 'end'),
+            );
+          const preview = request({ op: 'preview', project: p });
+          assert.equal(
+            preview.valid,
+            true,
+            JSON.stringify(preview.diagnostics),
+          );
+          const source = preview.files['main/tasks/adc_task.cpp'];
+          const call =
+            '::espresso::tasks::adc::connections::io_6f7574707574(outgoing)';
+          const guarded =
+            onFailure === 'assert' ||
+            (delivery === 'queue' &&
+              onFailure === 'return' &&
+              (placement === 'start' || followed));
+          assert.equal(
+            source.includes('if (!' + call + ')'),
+            guarded,
+            JSON.stringify({ delivery, placement, onFailure, followed }),
+          );
+          assert.equal(source.includes('    ' + call + ';'), !guarded);
+          assert.doesNotMatch(source, /GENERATED CONNECTOR\. Configure/);
+          assert.ok(
+            source.includes(
+              delivery === 'mailbox'
+                ? '// Publish messages'
+                : '// Send messages to queue',
+            ),
+          );
+        }
+});
+
 test('automatic connectors surround the preserved loop and survive repeated import without duplication', () => {
   let { p, code } = fixture();
   const originalBody = code.slice(
@@ -427,6 +492,80 @@ test('new library assignments add headers and build registration while preservin
   assert.equal(p.sourceFiles['main/tasks/adc_task.cpp'].content, original);
 });
 
+test('importing a final FIFO send restores its guard when a later connector is added', () => {
+  for (const newline of ['\n', '\r\n']) {
+    const { p } = fixture();
+    delete p.sourceFiles;
+    delete p.imported;
+    p.nodes.push({
+      id: 'messages',
+      kind: 'struct',
+      name: 'Messages',
+      symbol: 'messages',
+      typeName: 'Message',
+      position: { x: 0, y: 0 },
+      delivery: 'queue',
+      capacity: 1,
+      fields: [
+        {
+          id: 'message-value',
+          name: 'value',
+          type: 'int32_t',
+          initialValue: '0',
+        },
+      ],
+    });
+    p.nodes[0].loop.push({
+      id: 'tail-output',
+      kind: 'send',
+      name: 'Send messages',
+      note: '',
+      structId: 'messages',
+      localName: 'outgoing',
+      timeoutMs: 0,
+      onFailure: 'return',
+    });
+    const helperKey = `helpers-${Buffer.from('adc').toString('hex')}`;
+    const handwritten =
+      'const char* marker = R"doc(send_messages(outgoing);)doc";\n';
+    p.code = { ...p.code, [helperKey]: handwritten };
+    const folder = request({
+      op: 'export',
+      project: p,
+      path: fs.mkdtempSync(path.join(os.tmpdir(), 'espresso-tail-send-')),
+    }).path;
+    const sourcePath = path.join(folder, 'main/tasks/adc_task.cpp');
+    const original = fs
+      .readFileSync(sourcePath, 'utf8')
+      .replace(/\n/g, newline);
+    fs.writeFileSync(sourcePath, original);
+    assert.ok(original.includes('    send_messages(outgoing);'));
+    const imported = request({ op: 'import-project', path: folder }).project;
+    imported.nodes[0].loop.push(
+      placed('following-write', 'write', 'samples', 'following', 'end'),
+    );
+    const source = request({ op: 'preview', project: imported }).files[
+      'main/tasks/adc_task.cpp'
+    ];
+    assert.ok(source.includes('    if (!send_messages(outgoing)) return;'));
+    assert.ok(source.includes(handwritten.replace(/\n/g, newline)));
+    assert.equal(
+      imported.sourceFiles['main/tasks/adc_task.cpp'].content,
+      original,
+    );
+    assert.equal(
+      (source.match(/if \(!send_messages\(outgoing\)\) return;/g) ?? []).length,
+      1,
+    );
+    assert.equal(
+      source,
+      request({ op: 'preview', project: imported }).files[
+        'main/tasks/adc_task.cpp'
+      ],
+    );
+  }
+});
+
 test('extended imported C++ compiles and executes input/output, notification, timeout and early-return behaviour', () => {
   const { p } = fixture();
   p.libraries.push({
@@ -484,18 +623,18 @@ test('extended imported C++ compiles and executes input/output, notification, ti
     ...placed('queue-output', 'send', 'messages', 'fresh', 'end'),
     timeoutMs: 50,
   });
-  p.nodes[0].loop.push({
+  const notification = {
     id: 'notify-added',
     kind: 'notify',
     name: 'Notify logger',
     note: '',
     taskId: 'logger',
     placement: 'end',
-  });
+  };
   const root = fs.mkdtempSync(
     path.join(os.tmpdir(), 'espresso-imported-runtime-'),
   );
-  const output = request({ op: 'export', project: p, path: root }).path;
+  let output = request({ op: 'export', project: p, path: root }).path;
   const cache = fs.readFileSync('build/native/CMakeCache.txt', 'utf8');
   const cmake =
     cache.match(/^CMAKE_COMMAND:INTERNAL=(.*)$/m)?.[1].trim() ?? 'cmake';
@@ -507,27 +646,53 @@ test('extended imported C++ compiles and executes input/output, notification, ti
       throw new Error(`${error.message}\n${error.stdout}\n${error.stderr}`);
     }
   };
-  run([
-    '-S',
-    path.resolve('tests/imported-firmware'),
-    '-B',
-    build,
-    '-DFIRMWARE=' + output,
-    '-G',
-    'Visual Studio 17 2022',
-    '-A',
-    'x64',
-  ]);
-  run(['--build', build, '--config', 'Release']);
-  const result = execFileSync(
-    path.join(build, 'Release/imported-check.exe'),
-    [],
-    { encoding: 'utf8', windowsHide: true },
-  );
-  assert.match(
-    result,
-    /Imported connectors, payloads, timeouts and early returns passed/,
-  );
+  for (const tail of [true, false]) {
+    if (!tail) {
+      const imported = request({ op: 'import-project', path: output }).project;
+      imported.nodes[0].loop.push(notification);
+      const original = fs.readFileSync(
+        path.join(output, 'main/tasks/adc_task.cpp'),
+        'utf8',
+      );
+      const call =
+        '::espresso::tasks::adc::connections::io_71756575652d6f7574707574(fresh)';
+      assert.ok(original.includes('    ' + call + ';'));
+      output = request({
+        op: 'export',
+        project: imported,
+        path: fs.mkdtempSync(
+          path.join(os.tmpdir(), 'espresso-imported-followup-'),
+        ),
+      }).path;
+      const extended = fs.readFileSync(
+        path.join(output, 'main/tasks/adc_task.cpp'),
+        'utf8',
+      );
+      assert.ok(extended.includes('if (!' + call + ') return;'));
+    }
+    run([
+      '-S',
+      path.resolve('tests/imported-firmware'),
+      '-B',
+      build,
+      '-DFIRMWARE=' + output,
+      '-DTAIL_SEND=' + (tail ? 'ON' : 'OFF'),
+      '-G',
+      'Visual Studio 17 2022',
+      '-A',
+      'x64',
+    ]);
+    run(['--build', build, '--config', 'Release']);
+    const result = execFileSync(
+      path.join(build, 'Release/imported-check.exe'),
+      [],
+      { encoding: 'utf8', windowsHide: true },
+    );
+    assert.match(
+      result,
+      /Imported connectors, payloads, timeouts and early returns passed/,
+    );
+  }
   const imported = request({ op: 'import-project', path: output }).project;
   const next = request({
     op: 'export',

@@ -207,7 +207,7 @@ const json *baseline_task(const json &p, const json &task)
             if (node["id"] == task["id"]) return &node;
     return nullptr;
 }
-std::string io_code(const json &task, const json &step)
+std::string io_code(const json &p, const json &task, const json &step, bool last)
 {
     const std::string kind = step["kind"];
     if (kind == "notify") return "    ::espresso::generated::notify_"; // Resolved by caller.
@@ -218,7 +218,10 @@ std::string io_code(const json &task, const json &step)
     if (kind == "write") return "    " + call + "(" + local + ");\n";
     const auto failure = step.value("onFailure", "return");
     const auto fallback = failure == "return" ? "return;" : failure == "assert" ? "configASSERT(false);" : "/* Keep the local value and continue. */";
-    if (kind == "send") return "    if (!" + call + "(" + local + ")) { " + fallback + " }\n";
+    if (kind == "send")
+        for (const auto &data : p["nodes"])
+            if (data["id"] == step["structId"])
+                return send_statement(data, step, call + "(" + local + ")", last);
     const auto temporary = "espresso_received_" + connection_helper(step);
     return "    if (const auto " + temporary + " = " + call + "())\n        " + local + " = *" + temporary +
            ";\n    else { " + fallback + " }\n";
@@ -282,6 +285,9 @@ std::string extend_imported_task(const json &p, const json &task, const std::str
     const auto loop = locate_loop(tokens, task["symbol"]);
     const std::string newline = source.find("\r\n") != std::string::npos ? "\r\n" : "\n";
     std::string declarations, start, end;
+    std::string last_end;
+    for (const auto &step : steps)
+        if (step["placement"] == "end") last_end = step["id"];
     std::set<std::string> locals;
     for (const auto &step : steps)
     {
@@ -299,23 +305,54 @@ std::string extend_imported_task(const json &p, const json &task, const std::str
                     if (node["id"] == step["structId"])
                     {
                         if (kind == "send" || kind == "write")
-                            declarations += "    // TODO: Populate " + local + " before its output connector runs.\n";
+                            declarations += "    // TODO: Populate " + local + ".\n";
                         declarations += "    [[maybe_unused]] ::espresso::data::" + node["typeName"].get<std::string>() + " " + local + "{};\n";
                     }
             }
         }
-        std::string code = "    // ESPresso: GENERATED CONNECTOR. Configure it in the task editor.\n";
+        std::string code = task_step_comment(p, step);
         if (kind == "notify")
         {
             for (const auto &target : p["nodes"])
                 if (target["id"] == step["taskId"])
                     code += "    ::espresso::generated::notify_" + target["symbol"].get<std::string>() + "();\n";
         }
-        else code += io_code(task, step);
+        else code += io_code(p, task, step, step["id"] == last_end);
         (step["placement"] == "start" ? start : end) += code;
     }
     struct Edit { size_t at; std::string text; };
     std::vector<Edit> edits;
+    // A FIFO send that used to end loop() needs its return-on-failure check
+    // restored when new end connectors follow it. Match only a standalone
+    // generated helper call at the actual end of the preserved loop.
+    if (!end.empty())
+        for (const auto &step : (*base)["loop"])
+        {
+            if (step["kind"] != "send" || step.value("onFailure", "return") != "return") continue;
+            const auto data = std::find_if(p["nodes"].begin(), p["nodes"].end(),
+                                          [&](const json &n) { return n["id"] == step["structId"]; });
+            if (data == p["nodes"].end() || data->value("delivery", "snapshot") == "mailbox") continue;
+            const auto function = placed_connection(step)
+                                      ? "::espresso::tasks::" + task["symbol"].get<std::string>() +
+                                            "::connections::" + connection_helper(step)
+                                      : queue_step_function(p, task, step);
+            const auto expected = tokenize(function + "(" + step["localName"].get<std::string>() + ");");
+            if (loop.close < expected.size()) continue;
+            const size_t first = loop.close - expected.size();
+            if (first <= loop.open) continue;
+            const auto &previous = tokens[first - 1].text;
+            if (first - 1 != loop.open && previous != ";" && previous != "}") continue;
+            bool matches = true;
+            for (size_t i = 0; i < expected.size(); ++i)
+                if (tokens[first + i].text != expected[i].text || tokens[first + i].conditional)
+                    matches = false;
+            if (matches)
+            {
+                edits.push_back({tokens[first].begin, "if (!"});
+                edits.push_back({tokens[loop.close - 2].end, ") return"});
+                break;
+            }
+        }
     auto line_endings = [&](const std::string &text) {
         std::string converted;
         for (const char c : text) converted += c == '\n' ? newline : std::string(1, c);

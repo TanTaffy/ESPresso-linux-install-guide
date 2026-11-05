@@ -53,7 +53,7 @@ void add_skeleton_headers(const json &p, Files &files)
                 header = "//" + task_pun(owner) + "\n";
             std::string role = "// ESPresso: GENERATED FILE. Change wiring in ESPresso; keep this file unchanged.\n";
             if (!owner.empty() && extension == ".cpp")
-                role = "// ESPresso: USER FILE. Implement task logic here; keep setup()/loop() signatures unchanged.\n";
+                role.clear();
             else if (name == "main/" + config_path(p))
                 role = "// ESPresso: USER CONFIG. Edit hardware settings and constants here; keep task namespaces.\n";
             else if (name == "main/main.cpp")
@@ -142,99 +142,30 @@ std::string prose_comment(const std::string &text, const std::string &indent = "
     return out;
 }
 
-std::string payload_comments(const json &p, const json &node, const std::string &indent)
+} // namespace
+
+std::string task_step_comment(const json &p, const json &step)
 {
-    std::string out = indent + "// " + node["typeName"].get<std::string>() +
-                      " payload (declared field defaults):\n";
-    auto fields = node["fields"];
-    std::vector<json> definitions;
-    std::set<std::string> described;
-    const auto types = p.value("types", json::array());
-    auto reference = [&](const std::string &id)
-    {
-        if (described.insert(id).second)
-            for (const auto &type : types)
-                if (type["id"] == id)
-                    definitions.push_back(type);
-    };
-    const auto payload = node.value("payloadTypeId", "");
-    if (!payload.empty())
-    {
-        fields = json::array();
-        for (const auto &type : types)
-            if (type["id"] == payload)
-            {
-                described.insert(payload);
-                if (type["kind"] == "struct")
-                    fields = type["fields"];
-                else
-                    definitions.push_back(type);
-            }
-    }
-    for (const auto &field : fields)
-    {
-        auto declaration = field_cpp(p, field);
-        declaration = declaration.substr(4, declaration.size() - 5);
-        out += indent + "//   " + comment(declaration) + "\n";
-        const std::string type = field["type"];
-        if (type.rfind("type:", 0) == 0)
-            reference(type.substr(5));
-    }
-    if (fields.empty() && definitions.empty())
-        out += indent + "//   No fields.\n";
-    for (const auto &type : definitions)
-    {
-        const std::string name = type["name"];
-        if (type["kind"] == "struct")
-        {
-            out += indent + "//   Nested " + comment(name) + ":\n";
-            for (const auto &field : type["fields"])
-            {
-                auto declaration = field_cpp(p, field);
-                declaration = declaration.substr(4, declaration.size() - 5);
-                out += indent + "//     " + comment(declaration) + "\n";
-            }
-            out += indent + "//   Further nested declarations: generated/data_types.hpp.\n";
-        }
-        else if (type["kind"] == "enum")
-        {
-            out += indent + "//   Enum " + comment(name) + ":\n";
-            for (const auto &value : type["values"])
-                out += indent + "//     " + comment(value["name"]) + " = " +
-                       comment(value["value"]) + "\n";
-        }
-        else
-        {
-            out += indent + "//   External " + comment(type["cppType"]) +
-                   ": member layout and "
-                   "defaults are defined in its header.\n";
-            for (const auto &header : type["headers"])
-                out += indent + "//   See " + comment(header) + ".\n";
-        }
-    }
-    return out;
+    std::string label = step["name"];
+    if (step["kind"] == "send")
+        for (const auto &data : p["nodes"])
+            if (data["id"] == step["structId"] &&
+                lower(label) == lower("Send " + data["name"].get<std::string>()))
+                label = data.value("delivery", "snapshot") == "mailbox"
+                            ? "Publish " + lower(data["name"])
+                            : "Send " + lower(data["name"]) + " to queue";
+    return prose_comment(comment(label), "    ");
 }
 
-std::string lifecycle_comment(const json &task, const std::map<std::string, json> &data,
-                              const std::string &phase)
+std::string send_statement(const json &data, const json &step, const std::string &call, bool last)
 {
-    if (phase == "setup")
-        return "// Runs once inside this task, after shared queues and mutexes are initialised.\n"
-               "// Other tasks may be running their setup at the same time.\n";
-    const auto trigger = task.value("trigger", "periodic");
-    if (trigger == "notification")
-        return "// Runs once per pending task notification (notification index 0).\n";
-    if (trigger == "queues")
-        return "// Runs when any selected queue or mailbox has a message.\n"
-               "// event identifies the input and contains its message, already removed from that input.\n";
-    if (trigger == "queue")
-        return "// Runs when a message arrives from " +
-               comment(data.at(task.at("queueId"))["symbol"]) +
-               ".\n// event is that message, already removed from the queue or mailbox.\n";
-    return prose_comment("Runs repeatedly at the period configured by " + config_namespace(task) +
-                         "::PERIOD_MS (milliseconds).");
+    const auto failure = step.value("onFailure", "return");
+    if (failure == "assert")
+        return "    if (!" + call + ") { configASSERT(false); }\n";
+    if (failure == "return" && data.value("delivery", "snapshot") != "mailbox" && !last)
+        return "    if (!" + call + ") return;\n";
+    return "    " + call + ";\n";
 }
-} // namespace
 
 Files generate(const json &p, json *diagnostics)
 {
@@ -395,7 +326,6 @@ Files generate(const json &p, json *diagnostics)
             {
                 const auto &q = by_id.at(id);
                 const std::string qs = q["symbol"];
-                task_header += payload_comments(p, q, "");
                 task_header +=
                     "struct " + qs + "Event { " + q["typeName"].get<std::string>() + " value; };\n";
                 variants += (variants.empty() ? "" : ", ") + qs + "Event";
@@ -403,8 +333,7 @@ Files generate(const json &p, json *diagnostics)
             task_header += "using Event = std::variant<" + variants + ">;\n";
         }
         files["main/tasks/" + sym + "_task.hpp"] =
-            task_header + lifecycle_comment(t, by_id, "setup") + "void setup();\n" +
-            lifecycle_comment(t, by_id, "loop") + "void loop(" + loop_parameters(t, by_id) +
+            task_header + "// Runs once.\nvoid setup();\n// Runs repeatedly.\nvoid loop(" + loop_parameters(t, by_id) +
             ");\n}\n";
         files["main/tasks/" + sym + "_parameters.hpp"] = parameter_header(p, t);
         const auto connections = imported_connection_header(p, t);
@@ -426,9 +355,7 @@ Files generate(const json &p, json *diagnostics)
         for (const auto &s : includes)
             source += s == "@runtime" ? "#include \"generated/task_runtime.hpp\"\n"
                                       : "#include \"shared/" + s + ".hpp\"\n";
-        source += "// ESPresso: USER INCLUDES. Add driver/library headers below.\n";
         source += base_code(p, region_key("includes", t["id"]), "");
-        source += "// ESPresso: USER HELPERS. Add helper functions and types below.\n";
         source += base_code(p, region_key("helpers", t["id"]), "");
         source += "\nnamespace espresso::tasks::" + sym + " {\n";
         bool added_types = false;
@@ -457,22 +384,15 @@ Files generate(const json &p, json *diagnostics)
             source += "using " + function + ";\n";
         if (added_types || !task_functions.empty())
             source += "\n";
-        source += "// ESPresso: USER STATE. Add persistent task-owned objects and variables below.\n";
         source += base_code(p, region_key("state", t["id"]), "");
         for (const auto *phase : {"setup", "loop"})
         {
-            source += lifecycle_comment(t, by_id, phase) + "void " + std::string(phase) + "(" +
+            source += std::string(phase == std::string("setup") ? "// Runs once.\n" : "// Runs repeatedly.\n") +
+                      "void " + std::string(phase) + "(" +
                       (std::string(phase) == "loop" ? loop_parameters(t, by_id) : "") + ")\n{\n";
             if (std::string(phase) == "loop" && !trigger_ids(t).empty())
             {
-                if (t.value("trigger", "periodic") == "queue")
-                    source += payload_comments(p, by_id.at(t.at("queueId")), "    ");
-                else
-                    source += "    // Payload fields for each event alternative are listed in " +
-                              sym + "_task.hpp.\n";
-                source +=
-                    "    // Use event directly; receiving again would take a different message.\n"
-                    "    (void)event;\n";
+                source += "    // event is the received sample.\n    (void)event;\n";
             }
             std::set<std::string> locals;
             for (const auto &step : t[phase])
@@ -480,28 +400,21 @@ Files generate(const json &p, json *diagnostics)
                 {
                     const std::string local = step["localName"];
                     if (locals.insert(local).second)
-                        source += payload_comments(p, by_id.at(step["structId"]), "    ") +
-                                  "    // Local working copy; publish or send explicitly to share "
-                                  "changes.\n"
-                                  "    // Initialised on each call; it does not retain values "
-                                  "between calls.\n"
-                                  "    [[maybe_unused]] " +
+                        source += "    [[maybe_unused]] " +
                                   by_id.at(step["structId"]).at("typeName").get<std::string>() +
                                   " " + local + "{};\n";
                 }
             if (!locals.empty())
                 source += "\n";
-            source += "    // ESPresso: USER LOCALS. Add variables shared by implementation steps below.\n";
             source += base_code(p, region_key(std::string(phase) + "vars", t["id"]), "");
             for (const auto &step : t[phase])
             {
                 if (placed_connection(step)) continue;
                 const std::string kind = step["kind"];
                 if (kind != "placeholder")
-                    source += prose_comment(comment(step["name"]), "    ");
+                    source += task_step_comment(p, step);
                 if (kind == "placeholder")
                 {
-                    source += "    // ESPresso: USER IMPLEMENTATION. Fill in this step below.\n";
                     const auto body = base_code(p, region_key("step", step["id"]), "");
                     const bool implemented = contains_code(body);
                     source += prose_comment(comment(step["name"]), "    ", implemented ? "" : "TODO: ");
@@ -523,68 +436,30 @@ Files generate(const json &p, json *diagnostics)
                     {
                         const auto function = queue_step_function(p, t, step);
                         const auto failure = step.value("onFailure", "return");
-                        const auto skipped =
-                            std::string(phase) == "setup"
-                                ? "skip remaining setup steps; loop() still starts."
-                                : "skip remaining steps in this loop iteration.";
-                        source += prose_comment("Timeout: " + config_namespace(t) +
-                                  "::" + timeout_setting(t, phase, step) +
-                                  " (ms; 0 = no wait, -1 = wait forever).", "    ");
                         if (kind == "receive")
                         {
                             std::string received = "received";
                             while (locals.count(received))
                                 received += "_message";
-                            source += by_id.at(step["structId"]).value("delivery", "snapshot") ==
-                                              "mailbox"
-                                          ? "    // Take the unread mailbox message; no value "
-                                            "means none arrived in time.\n"
-                                          : "    // Take the oldest waiting message from the "
-                                            "queue; each message goes to one receiver.\n";
                             source += "    if (const auto " + received + " = " + function + "())\n";
                             source += "        " + local + " = *" + received + ";\n";
                             if (failure == "return")
-                                source += "    else\n        // No message arrived: " +
-                                          std::string(skipped) + "\n        return;\n";
+                                source += "    else\n        return;\n";
                             else if (failure == "assert")
-                                source += "    else\n        // No message: assert if enabled; "
-                                          "otherwise keep the local value and continue.\n"
+                                source += "    else\n"
                                           "        configASSERT(false);\n";
                             else
-                                source += "    // On timeout, keep the previous local value and "
-                                          "continue.\n";
+                                source += "    // Keep the local value on timeout.\n";
                         }
                         else
                         {
                             const auto call = function + "(" + local + ")";
-                            source += by_id.at(step["structId"]).value("delivery", "snapshot") ==
-                                              "mailbox"
-                                          ? "    // Replace the unread mailbox message without "
-                                            "waiting; timeout is ignored.\n"
-                                          : "    // Add this message to the queue.\n";
-                            if (failure == "return")
-                            {
-                                source += "    // If sending fails, " + std::string(skipped) + "\n";
-                                source += "    if (!" + call + ") return;\n";
-                            }
-                            else if (failure == "assert")
-                            {
-                                source += "    // If sending fails, assert if enabled; otherwise "
-                                          "drop the message and continue.\n";
-                                source += "    if (!" + call + ") { configASSERT(false); }\n";
-                            }
-                            else
-                                source +=
-                                    "    (void)" + call + "; // Drop the message on timeout.\n";
+                            source += send_statement(by_id.at(step["structId"]), step, call,
+                                                     step["id"] == t[phase].back()["id"]);
                         }
                     }
                     else
                     {
-                        source += kind == "read"
-                                      ? "    // Copy the latest shared snapshot; reading does not "
-                                        "remove or modify it.\n"
-                                      : "    // Publish the complete local snapshot under its "
-                                        "mutex, including unchanged defaults.\n";
                         source += kind == "read" ? "    " + local + " = read_" + ss + "();\n"
                                                  : "    write_" + ss + "(" + local + ");\n";
                     }
@@ -611,7 +486,7 @@ Files generate(const json &p, json *diagnostics)
         "driver dependencies to `main/CMakeLists.txt`.\n4. Build, flash and monitor with ESP-IDF "
         "as usual.\n\n## Where to edit\n\n"
         "| Files | Expected changes |\n| --- | --- |\n"
-        "| `main/tasks/*_task.cpp` | Implement TODO steps; add your headers, helpers, state and local variables in the labelled areas. Keep setup/loop signatures. |\n"
+        "| `main/tasks/*_task.cpp` | Implement task logic; keep setup/loop signatures. |\n"
         "| `main/" + config_path(p) + "` | Edit hardware settings, calibration and constants. Keep task namespaces. |\n"
         "| `components/<library>/` | Modify library source when needed; imported library changes are preserved. |\n"
         "| `main/main.cpp` | Initialise shared hardware before start_tasks() when needed. |\n"

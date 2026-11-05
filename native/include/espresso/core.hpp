@@ -61,6 +61,8 @@ json validate(const json &project);
 bool has_errors(const json &diagnostics);
 
 Files generate(const json &project, json *diagnostics = nullptr);
+std::string task_step_comment(const json &project, const json &step);
+std::string send_statement(const json &data, const json &step, const std::string &call, bool last);
 Files queue_files(const json &node, const json &project);
 std::string event_runtime(const std::vector<json> &tasks, const std::map<std::string, json> &data);
 std::string loop_parameters(const json &task, const std::map<std::string, json> &data);

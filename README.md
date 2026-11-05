@@ -20,7 +20,9 @@ Re-import accepts UTF-8 BOMs and Windows line endings, preserves edited `.gitign
 
 Imported tasks have limited functionality: add connectors at the **start or end of `loop()`**. ESPresso adds their transport code on export and preserves the existing loop body. Early returns skip end connectors. Use received values and populate outgoing samples in your implementation. New library assignments add their headers and build dependencies. Existing flow, data definitions and triggers remain protected.
 
-The exported README and file comments identify where to edit: task implementations, configuration and library source are the normal working areas; shared-hardware initialisation belongs in `main/main.cpp` when needed. Runtime, transport and task interface headers are generated support.
+The exported README identifies where to edit: task implementations, configuration and library source are the normal working areas; shared-hardware initialisation belongs in `main/main.cpp` when needed. Task comments keep the implementation TODOs and short action labels. Runtime, transport and task interface headers are generated support.
+
+Mailbox sends use plain calls. FIFO sends also use plain calls at the end of a function; when later steps follow, **Skip remaining steps** keeps a failure check. **Assert success** always keeps its check. Adding end connectors to an imported task restores the check around a recognised final FIFO send when needed.
 
 Use **Save as…** (Ctrl+Shift+S) to save a separate copy of a layout. On the next launch, ESPresso offers to recover your previous session; recovered layouts need to be saved to a layout file. Unreadable recovery files are preserved for troubleshooting.
 

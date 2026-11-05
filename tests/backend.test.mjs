@@ -193,7 +193,7 @@ test('pressure example replaces unread samples and wakes CAN with the latest eve
   assert.match(f['main/tasks/adc_task.cpp'], /\]\] PressureData pressure\{\}/);
   assert.match(
     f['main/tasks/adc_task.cpp'],
-    /if \(!send_pressure\(pressure\)\) return;/,
+    /\n    send_pressure\(pressure\);\n/,
   );
   assert.match(
     f['main/tasks/can_task.cpp'],
@@ -512,6 +512,67 @@ function queueProject() {
   return p;
 }
 
+test('send calls stay plain unless later operations or assertions need a failure check', () => {
+  for (const phase of ['setup', 'loop'])
+    for (const delivery of ['mailbox', 'queue'])
+      for (const onFailure of ['return', 'continue', 'assert'])
+        for (const followed of [false, true]) {
+          const p = withoutCan(example());
+          const adc = p.nodes[0];
+          p.nodes[1].delivery = delivery;
+          if (delivery === 'queue') p.nodes[1].capacity = 1;
+          adc.setup = [];
+          adc.loop = [];
+          adc[phase] = [
+            {
+              id: 'send',
+              kind: 'send',
+              name: 'Send pressure',
+              note: '',
+              structId: 'struct-pressure',
+              localName: 'pressure',
+              timeoutMs: 0,
+              onFailure,
+            },
+          ];
+          if (followed)
+            adc[phase].push({
+              id: 'after',
+              kind: 'placeholder',
+              name: 'After send',
+              note: '',
+            });
+          const result = request({ op: 'preview', project: p });
+          assert.equal(result.result.valid, true, JSON.stringify(result));
+          const source = result.result.files['main/tasks/adc_task.cpp'];
+          const guarded =
+            onFailure === 'assert' ||
+            (delivery === 'queue' && onFailure === 'return' && followed);
+          assert.equal(
+            source.includes('if (!send_pressure(pressure))'),
+            guarded,
+            JSON.stringify({ phase, delivery, onFailure, followed }),
+          );
+          assert.equal(
+            source.includes('\n    send_pressure(pressure);\n'),
+            !guarded,
+          );
+          if (onFailure === 'assert')
+            assert.match(source, /configASSERT\(false\)/);
+          assert.doesNotMatch(
+            source,
+            /declared field defaults|USER IMPLEMENTATION|Timeout:|If sending fails/,
+          );
+          assert.ok(
+            source.includes(
+              delivery === 'mailbox'
+                ? '// Publish pressure'
+                : '// Send pressure to queue',
+            ),
+          );
+        }
+});
+
 test('typed queues consume messages and queue-triggered loops receive the waking event', () => {
   const p = queueProject(),
     r = request({ op: 'preview', project: p });
@@ -529,7 +590,7 @@ test('typed queues consume messages and queue-triggered loops receive the waking
   assert.doesNotMatch(files['main/shared/pressure.cpp'], /Semaphore/);
   assert.match(
     files['main/tasks/adc_task.cpp'],
-    /if \(!send_pressure\(pressure\)\) return;/,
+    /\n    send_pressure\(pressure\);\n/,
   );
   assert.match(
     files['main/tasks/can_task.hpp'],
