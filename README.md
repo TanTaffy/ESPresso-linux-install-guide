@@ -26,6 +26,8 @@ Use **Save as…** (Ctrl+Shift+S) to save a separate copy of a layout. On the ne
 
 Use the bug icon beside the theme selector to [report an issue on GitHub](https://github.com/Trovix/ESPresso/issues).
 
+The packaged app checks GitHub for a newer stable Windows release once on launch. Choose **Download update** to open the official download in your browser, or **Not now** to continue. Offline checks stay quiet.
+
 ## Run from source
 
 Requires Windows x64, Node.js 22.14+ and Visual Studio 2022 C++ Build Tools with CMake and a Windows SDK. The packaged app needs none of these.

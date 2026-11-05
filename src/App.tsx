@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import {
   Background,
   BackgroundVariant,
@@ -30,7 +31,7 @@ import {
   ListPlus,
 } from 'lucide-react';
 import { importedNode, lockedConnection } from './imported';
-import type { Task } from './model';
+import type { AppUpdate, Task } from './model';
 import { ThemeSelector } from './components/ThemeSelector';
 import { nodeTypes } from './components/DiagramNode';
 import { TaskSettings } from './components/TaskSettings';
@@ -46,12 +47,23 @@ import { DataTypeScreen } from './screens/DataTypeScreen';
 import { TaskIcon } from './components/TaskIcon';
 import { ProjectSetup } from './components/ProjectSetup';
 import { RecoveryPrompt } from './components/RecoveryPrompt';
+import { UpdatePrompt } from './components/UpdatePrompt';
 import { ImportProjectPicker } from './components/ImportProjectPicker';
 import { TemplatePicker } from './components/TemplatePicker';
 import { version as appVersion } from '../package.json';
 
 export default function App() {
   const editor = useEditor();
+  const [update, setUpdate] = useState<AppUpdate | null>(null);
+  const updateChecked = useRef(false);
+  useEffect(() => {
+    if (!editor.project || updateChecked.current) return;
+    updateChecked.current = true;
+    void window.espresso
+      .checkUpdates()
+      .then(setUpdate)
+      .catch(() => {});
+  }, [editor.project]);
   const {
     project,
     view,
@@ -661,6 +673,15 @@ export default function App() {
           onChoose={(recover) => void editor.resolveRecovery(recover)}
         />
       )}
+      {update &&
+        !busy &&
+        !editor.recovery &&
+        !editor.projectSetup &&
+        !editor.templatePicker &&
+        !editor.importPicker &&
+        !confirm && (
+          <UpdatePrompt update={update} onClose={() => setUpdate(null)} />
+        )}
       {editor.projectSetup && (
         <ProjectSetup
           project={project}

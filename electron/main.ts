@@ -4,6 +4,7 @@ import {
   dialog,
   ipcMain,
   nativeTheme,
+  net,
   shell,
 } from 'electron';
 import { existsSync, readFileSync } from 'node:fs';
@@ -27,6 +28,8 @@ import type {
 import { createNativeClient } from './native-client';
 import { openFolder } from './open-folder';
 import { developerTools, openInEditor } from './developer-tools';
+import { checkForUpdate } from './updates';
+import type { AppUpdate } from '../src/model';
 
 let window: BrowserWindow;
 let currentPath: string | null = null;
@@ -161,6 +164,19 @@ app.whenReady().then(() => {
     },
   });
   window.removeMenu();
+  let updateCheck: Promise<AppUpdate | null> | undefined;
+  register('check-updates', () => {
+    updateCheck ??=
+      app.isPackaged && !process.env.ESPRESSO_TEST_DATA
+        ? checkForUpdate(app.getVersion(), net.fetch.bind(net))
+        : Promise.resolve(null);
+    return updateCheck;
+  });
+  register('download-update', async () => {
+    const update = await updateCheck;
+    if (!update) throw new Error('No update is available.');
+    await shell.openExternal(update.url);
+  });
   register('set-appearance', (value: unknown) => {
     if (!validAppearance(value)) throw new Error('Invalid theme settings.');
     const preferences = {

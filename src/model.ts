@@ -164,12 +164,15 @@ export type DeveloperTools = {
   editorPath: string | null;
 };
 export type Phase = 'setup' | 'loop';
+export type AppUpdate = { version: string; url: string };
 export interface DesktopApi {
   initialAppearance: Appearance;
   setAppearance(appearance: Appearance): Promise<void>;
   boot(): Promise<Boot>;
   resolveRecovery(recover: boolean): Promise<Project | null>;
   openIssues(): Promise<void>;
+  checkUpdates(): Promise<AppUpdate | null>;
+  downloadUpdate(): Promise<void>;
   preview(project: Project): Promise<Preview>;
   draft(project: Project, dirty: boolean): Promise<void>;
   save(project: Project, saveAs?: boolean): Promise<SaveResult>;
