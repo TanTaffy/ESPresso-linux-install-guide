@@ -141,6 +141,11 @@ void check_shape(const json &p)
                                 "A shared-data step needs a struct and local snapshot name.");
                     require(!s.contains("timeoutMs") || s["timeoutMs"].is_number_integer(),
                             "Queue timeout must be an integer.");
+                    require(!s.contains("placement") ||
+                                (has_string(s, "placement") &&
+                                 (s["placement"] == "start" || s["placement"] == "end") &&
+                                 std::string(phase) == "loop" && type != "placeholder"),
+                            "Imported connectors must be placed at the start or end of loop().");
                     require(!s.contains("onFailure") ||
                                 (has_string(s, "onFailure") &&
                                  (s["onFailure"] == "continue" || s["onFailure"] == "return" ||
@@ -432,6 +437,14 @@ json validate(const json &p)
                 for (const auto &step : n[phase])
                     if (step["kind"] != "placeholder")
                     {
+                        if (placed_connection(step))
+                        {
+                            bool imported = false;
+                            if (p.contains("imported"))
+                                for (const auto &original : p["imported"]["nodes"])
+                                    imported |= original["id"] == n["id"];
+                            if (!imported) issue("error", "Start/end connector placement is only available on imported tasks.", nid);
+                        }
                         if (step["kind"] == "notify")
                         {
                             const auto target_task = std::find_if(

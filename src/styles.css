@@ -835,6 +835,14 @@ pre {
   border-radius: 4px;
   white-space: nowrap;
 }
+.placement-badge {
+  color: var(--accent-text);
+  background: var(--accent-bg);
+  padding: 3px 7px;
+  border-radius: 4px;
+  font-size: 10px;
+  white-space: nowrap;
+}
 .edit-step .access-badge {
   margin-left: auto;
 }
@@ -1758,13 +1766,27 @@ button:focus-visible {
   cursor: pointer;
   color: var(--text);
 }
-dialog.project-setup {
+dialog.project-setup,
+dialog.recovery-prompt,
+dialog.import-picker {
   color: var(--text);
   border: 1px solid var(--border);
+}
+dialog.project-setup {
   width: min(460px, 90vw);
 }
-dialog.project-setup::backdrop {
+dialog.recovery-prompt,
+dialog.import-picker {
+  width: min(580px, 90vw);
+}
+dialog.project-setup::backdrop,
+dialog.recovery-prompt::backdrop,
+dialog.import-picker::backdrop {
   background: var(--overlay);
+}
+dialog.import-picker p[role='alert'] {
+  color: var(--danger);
+  overflow-wrap: anywhere;
 }
 .config-task-links,
 .connection-actions {

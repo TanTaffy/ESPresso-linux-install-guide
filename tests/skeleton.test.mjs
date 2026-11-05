@@ -138,6 +138,49 @@ test('generated files carry the credit, with stable coffee puns only on task sou
   assert.equal(handwritten.split(credit).length - 1, 1);
 });
 
+test('skeleton identifies editable task areas and generated support without changing older project imports', () => {
+  const p = project();
+  p.nodes = p.nodes.slice(0, 1);
+  const preview = request({ op: 'preview', project: p });
+  const task = preview.files['main/tasks/worker0_task.cpp'];
+  assert.match(task, /USER FILE/);
+  for (const label of [
+    'USER INCLUDES',
+    'USER HELPERS',
+    'USER STATE',
+    'USER LOCALS',
+  ])
+    assert.ok(task.includes(label));
+  assert.match(preview.files['main/tasks/worker0_task.hpp'], /GENERATED FILE/);
+  assert.match(
+    preview.files['main/generated/task_runtime.cpp'],
+    /GENERATED FILE/,
+  );
+  assert.match(preview.files['README.md'], /Where to edit/);
+  assert.match(preview.files['README.md'], /early return skips end connectors/);
+  const folder = exportTo(p);
+  const manifestPath = path.join(folder, 'espresso.project.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  const strip = (text) =>
+    text
+      .split(/(?<=\n)/)
+      .filter((line) => !/^\s*(?:\/\/|#) ESPresso: /.test(line))
+      .join('');
+  for (const [name, entry] of Object.entries(manifest.files)) {
+    if (!entry.generated || !/\.(?:cpp|hpp|h|cmake|txt)$/.test(name)) continue;
+    entry.generated = strip(entry.generated);
+    fs.writeFileSync(
+      path.join(folder, name),
+      strip(fs.readFileSync(path.join(folder, name), 'utf8')),
+    );
+  }
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+  const imported = request({ op: 'import-project', path: folder }).project;
+  const again = request({ op: 'preview', project: imported });
+  assert.equal(again.valid, true, JSON.stringify(again.diagnostics));
+  assert.equal(again.files['main/tasks/worker0_task.cpp'], strip(task));
+});
+
 test('edited generated code is rejected during import', () => {
   const p = project();
   p.nodes = p.nodes.slice(0, 1);

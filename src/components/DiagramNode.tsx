@@ -150,9 +150,9 @@ export function DiagramNode({ id, data, selected }: NodeProps<FlowNode>) {
       {data.imported && (
         <span
           className="imported-badge"
-          title="Preserved source. Existing flow is read-only; new input/output connectors are allowed."
+          title="Existing code is protected. Add connectors at the start or end of loop()."
         >
-          Imported · Limited editing
+          Imported · Limited functionality
         </span>
       )}
       <h3>{n.name || 'Unnamed task'}</h3>

@@ -6,6 +6,40 @@
 
 namespace espresso
 {
+namespace
+{
+std::string comparable_source(const std::string &text)
+{
+    // Editors and Git may change UTF-8 BOMs and Windows line endings without
+    // changing generated code. User-owned snapshots still retain their bytes.
+    std::string result;
+    result.reserve(text.size());
+    const size_t start = text.compare(0, 3, "\xEF\xBB\xBF") == 0 ? 3 : 0;
+    for (size_t i = start; i < text.size(); ++i)
+        if (text[i] != '\r' || i + 1 == text.size() || text[i + 1] != '\n')
+            result += text[i];
+    return result;
+}
+bool optional_project_file(const std::string &name)
+{
+    return name == "README.md" || name == ".gitignore" || name == ".vscode/settings.json" ||
+           name == "connection-updates.md";
+}
+std::string without_file_guidance(const std::string &source)
+{
+    std::istringstream lines(comparable_source(source));
+    std::string line, result;
+    while (std::getline(lines, line))
+    {
+        const auto first = line.find_first_not_of(" \t");
+        if (first != std::string::npos &&
+            (line.compare(first, 13, "// ESPresso: ") == 0 || line.compare(first, 12, "# ESPresso: ") == 0))
+            continue;
+        result += line + "\n";
+    }
+    return result;
+}
+} // namespace
 bool safe_relative(const std::string &name)
 {
     if (name.empty() || name.size() > 240 || name.front() == '/' ||
@@ -64,7 +98,7 @@ void preserve_sources(const json &p, Files &files)
         require(files.count(name),
                 name + ": generated file was removed. The imported file is retained; "
                        "resolve its dependencies before exporting.");
-        require(files.at(name) == entry["generated"] ||
+        require(without_file_guidance(files.at(name)) == without_file_guidance(entry["generated"]) ||
                     (!owner.empty() && fs::path(name).extension() == ".cpp"),
                 name +
                     ": layout changes affect an imported interface or generated file you edited. "
@@ -74,6 +108,10 @@ void preserve_sources(const json &p, Files &files)
             require(name == generated_name || lower(name) != lower(generated_name),
                     "Imported source conflicts with generated path: " + name);
         files[name] = entry["content"];
+        if (!owner.empty() && fs::path(name).extension() == ".cpp")
+            for (const auto &task : p["nodes"])
+                if (task["id"] == owner)
+                    files[name] = extend_imported_task(p, task, files[name]);
     }
 }
 bool contains_code(const std::string &text)
@@ -151,9 +189,21 @@ json project_manifest(const json &p, const Files &files)
     return {{"format", "espresso-project"},       {"version", 2}, {"generatorVersion", "1.0.0"},
             {"generatorCredit", skeleton_credit}, {"layout", p},  {"files", managed}};
 }
-json import_project(const fs::path &manifest)
+json import_project(const fs::path &selection)
 {
+    auto manifest = fs::absolute(selection);
+    if (fs::is_directory(manifest))
+        manifest /= "espresso.project.json";
+    else if (lower(manifest.filename().u8string()) == "espresso.layout.json" ||
+             lower(manifest.filename().u8string()) == "cmakelists.txt")
+        manifest = manifest.parent_path() / "espresso.project.json";
+    require(fs::is_regular_file(manifest),
+            "No espresso.project.json was found. Choose the exported project folder or its "
+            "espresso.project.json file. Keep the project files together when moving a project.");
     auto doc = json::parse(read_file(manifest));
+    require(!doc.is_object() || !doc.contains("nodes") || doc.contains("format"),
+            "This file is a saved layout. Use Open layout for diagrams, or select the exported "
+            "project folder to import edited code.");
     require(doc.is_object() && doc.value("format", "") == "espresso-project" &&
                 doc.value("version", 0) == 2,
             "Select an espresso.project.json exported by this version of ESPresso.");
@@ -188,9 +238,10 @@ json import_project(const fs::path &manifest)
     for (const auto &[name, descriptor] : doc["files"].items())
     {
         require(preserved_path(name), "Unsafe project file path: " + name);
+        require(descriptor.is_object(), "Invalid project file entry: " + name);
         const bool snapshot =
             descriptor.value("preserved", false) || name.rfind("components/", 0) == 0;
-        if (snapshot && !fs::exists(root / fs::u8path(name)))
+        if ((snapshot || optional_project_file(name)) && !fs::exists(root / fs::u8path(name)))
             continue;
         const auto text = read_inside(name);
         if (name == config_name)
@@ -210,7 +261,8 @@ json import_project(const fs::path &manifest)
             builds[name] = text;
             continue;
         }
-        if (snapshot || name == "README.md" || name == ".vscode/settings.json")
+        if (snapshot || name == "README.md" || name == ".vscode/settings.json" ||
+            name == ".gitignore" || name == "sdkconfig.defaults")
         {
             require(!expected_files.count(name) || name.rfind("components/", 0) == 0 ||
                         name == "README.md" || name == ".gitignore" || name == "sdkconfig.defaults" ||
@@ -220,9 +272,11 @@ json import_project(const fs::path &manifest)
             continue;
         }
         require(expected_files.count(name), "Unexpected generated file: " + name);
-        const auto baseline =
-            saved.contains(name) ? saved[name]["generated"] : json(expected_files.at(name));
-        require(descriptor.at("generated") == baseline,
+        require(descriptor.contains("generated") && descriptor["generated"].is_string(),
+                "Project file inventory is missing its generated baseline: " + name);
+        const auto baseline = saved.contains(name) ? saved[name]["generated"] : descriptor["generated"];
+        require(descriptor["generated"] == baseline &&
+                    (saved.contains(name) || without_file_guidance(baseline) == without_file_guidance(expected_files.at(name))),
                 "Project layout and generated file inventory disagree: " + name);
         const auto owner = task_file_owner(p, name);
         require(descriptor.value("taskId", "") == owner, "Invalid task file ownership: " + name);
@@ -238,7 +292,7 @@ json import_project(const fs::path &manifest)
                 sources[name]["taskId"] = owner;
         }
         else
-            require(text == expected_files.at(name),
+            require(comparable_source(text) == comparable_source(baseline),
                     name + ": generated file changed. "
                            "Keep custom code in your task files or separate source files.");
     }
@@ -255,7 +309,9 @@ json import_project(const fs::path &manifest)
                                        ". Use regular files before importing.");
         if (it->is_directory())
         {
-            if (it->path().filename() == "build" || it->path().filename() == ".git")
+            if (name == "build" || it->path().filename() == ".git" ||
+                (fs::is_regular_file(it->path() / "CMakeCache.txt") &&
+                 fs::is_directory(it->path() / "CMakeFiles")))
                 it.disable_recursion_pending();
             continue;
         }

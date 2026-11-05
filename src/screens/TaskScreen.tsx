@@ -72,6 +72,31 @@ export function TaskScreen({
   const hasNotificationTargets = tasks.some(
     (t) => t.trigger === 'notification',
   );
+  function displayedSteps(phase: Phase) {
+    if (!task) return [];
+    const items = task[phase];
+    if (!baseline || phase !== 'loop') return items;
+    const added = (step: Step) =>
+      !!step.placement && !importedStep(project, task.id, step.id);
+    return [
+      ...items.filter((s) => added(s) && s.placement === 'start'),
+      ...items.filter((s) => !added(s)),
+      ...items.filter((s) => added(s) && s.placement === 'end'),
+    ];
+  }
+  function canMove(phase: Phase, step: Step, offset: number) {
+    if (!task) return false;
+    const group = baseline
+      ? task[phase].filter(
+          (s) =>
+            s.placement === step.placement &&
+            !!s.placement &&
+            !importedStep(project, task.id, s.id),
+        )
+      : task[phase];
+    const i = group.findIndex((s) => s.id === step.id);
+    return i >= 0 && i + offset >= 0 && i + offset < group.length;
+  }
   return task ? (
     <>
       <div className="page-heading">
@@ -79,7 +104,9 @@ export function TaskScreen({
           <h1>
             {task.name} task{' '}
             {baseline && (
-              <span className="imported-badge">Imported · Limited editing</span>
+              <span className="imported-badge">
+                Imported · Limited functionality
+              </span>
             )}
           </h1>
           <p>
@@ -143,8 +170,8 @@ export function TaskScreen({
           <h3>Libraries</h3>
           {baseline && (
             <p className="info-note">
-              New assignments add build dependencies. Add their headers and
-              calls in your editor.
+              New assignments add headers and build dependencies. Initialise and
+              use the library in your task implementation.
             </p>
           )}
           {!project?.libraries?.length && (
@@ -176,10 +203,10 @@ export function TaskScreen({
             <div className="info-note">
               <strong>Imported task files are preserved.</strong>
               <p>
-                Existing steps, connectors, symbols and trigger interfaces are
-                read-only. Add new connectors and integrate their calls in your
-                editor. Timing and config values remain editable. Re-import to
-                refresh the source snapshot.
+                Add connectors at the start or end of loop(). Existing code and
+                triggers stay protected. End connectors are skipped by an early
+                return. Implement how inputs are used and populate outgoing
+                values in your editor.
               </p>
               <details className="imported-code">
                 <summary>Preserved task file · {importedFile[0]}</summary>
@@ -203,11 +230,14 @@ export function TaskScreen({
                           : `Repeat every ${task.periodExpression || task.periodMs} ms`}
                 </span>
               </div>
-              {task[phase].map((s, i) => (
+              {displayedSteps(phase).map((s, i) => (
                 <div
                   className="edit-step-row"
                   key={s.id}
-                  draggable={!baseline}
+                  draggable={
+                    !baseline ||
+                    (!!s.placement && !importedStep(project, task.id, s.id))
+                  }
                   onDragStart={(e) =>
                     e.dataTransfer.setData(
                       'application/espresso-step',
@@ -254,6 +284,11 @@ export function TaskScreen({
                         Requires code update
                       </span>
                     )}
+                    {s.placement && !importedStep(project, task.id, s.id) && (
+                      <span className="placement-badge">
+                        {s.placement === 'start' ? 'Loop start' : 'Loop end'}
+                      </span>
+                    )}
                     {s.kind !== 'placeholder' && (
                       <span className="access-badge">{s.kind}</span>
                     )}
@@ -261,7 +296,7 @@ export function TaskScreen({
                   <div className="step-row-tools">
                     <button
                       className="icon-button"
-                      disabled={!!baseline || i === 0}
+                      disabled={!canMove(phase, s, -1)}
                       aria-label={`Move ${s.name} up`}
                       onClick={() => moveStep(phase, s.id, -1)}
                     >
@@ -269,7 +304,7 @@ export function TaskScreen({
                     </button>
                     <button
                       className="icon-button"
-                      disabled={!!baseline || i === task[phase].length - 1}
+                      disabled={!canMove(phase, s, 1)}
                       aria-label={`Move ${s.name} down`}
                       onClick={() => moveStep(phase, s.id, 1)}
                     >
@@ -292,99 +327,101 @@ export function TaskScreen({
                   </div>
                 </div>
               ))}
-              <div className="add-step-row">
-                <button
-                  className="button dashed"
-                  disabled={!!baseline}
-                  title={
-                    baseline
-                      ? 'Imported task flow is read-only; add input/output connectors instead.'
-                      : undefined
-                  }
-                  onClick={() => addStep(phase)}
-                >
-                  <Plus size={15} />
-                  Placeholder
-                </button>
-                <span
-                  className="step-action-hint"
-                  title={
-                    !hasSnapshots ? 'Add latest-value data first.' : undefined
-                  }
-                  tabIndex={!hasSnapshots ? 0 : undefined}
-                >
+              {!(baseline && phase === 'setup') && (
+                <div className="add-step-row">
                   <button
                     className="button dashed"
-                    disabled={!hasSnapshots}
-                    onClick={() => addStep(phase, 'read')}
+                    disabled={!!baseline}
+                    title={
+                      baseline
+                        ? 'Imported task flow is read-only; add input/output connectors instead.'
+                        : undefined
+                    }
+                    onClick={() => addStep(phase)}
                   >
-                    <Download size={14} />
-                    Read latest value
+                    <Plus size={15} />
+                    Placeholder
                   </button>
-                </span>
-                <span
-                  className="step-action-hint"
-                  title={
-                    !hasSnapshots ? 'Add latest-value data first.' : undefined
-                  }
-                  tabIndex={!hasSnapshots ? 0 : undefined}
-                >
-                  <button
-                    className="button dashed"
-                    disabled={!hasSnapshots}
-                    onClick={() => addStep(phase, 'write')}
+                  <span
+                    className="step-action-hint"
+                    title={
+                      !hasSnapshots ? 'Add latest-value data first.' : undefined
+                    }
+                    tabIndex={!hasSnapshots ? 0 : undefined}
                   >
-                    <Upload size={14} />
-                    Publish
-                  </button>
-                </span>
-                <span
-                  className="step-action-hint"
-                  title={!hasMessages ? 'Add message data first.' : undefined}
-                  tabIndex={!hasMessages ? 0 : undefined}
-                >
-                  <button
-                    className="button dashed"
-                    disabled={!hasMessages}
-                    onClick={() => addStep(phase, 'send')}
+                    <button
+                      className="button dashed"
+                      disabled={!hasSnapshots}
+                      onClick={() => addStep(phase, 'read')}
+                    >
+                      <Download size={14} />
+                      Read latest value
+                    </button>
+                  </span>
+                  <span
+                    className="step-action-hint"
+                    title={
+                      !hasSnapshots ? 'Add latest-value data first.' : undefined
+                    }
+                    tabIndex={!hasSnapshots ? 0 : undefined}
                   >
-                    Send data
-                  </button>
-                </span>
-                <span
-                  className="step-action-hint"
-                  title={!hasMessages ? 'Add message data first.' : undefined}
-                  tabIndex={!hasMessages ? 0 : undefined}
-                >
-                  <button
-                    className="button dashed"
-                    disabled={!hasMessages}
-                    onClick={() => addStep(phase, 'receive')}
+                    <button
+                      className="button dashed"
+                      disabled={!hasSnapshots}
+                      onClick={() => addStep(phase, 'write')}
+                    >
+                      <Upload size={14} />
+                      Publish
+                    </button>
+                  </span>
+                  <span
+                    className="step-action-hint"
+                    title={!hasMessages ? 'Add message data first.' : undefined}
+                    tabIndex={!hasMessages ? 0 : undefined}
                   >
-                    {phase === 'loop' &&
-                    (task.trigger === 'queue' || task.trigger === 'queues')
-                      ? 'Receive an additional sample'
-                      : 'Receive data'}
-                  </button>
-                </span>
-                <span
-                  className="step-action-hint"
-                  title={
-                    !hasNotificationTargets
-                      ? 'Set a task to When notified first.'
-                      : undefined
-                  }
-                  tabIndex={!hasNotificationTargets ? 0 : undefined}
-                >
-                  <button
-                    className="button dashed"
-                    disabled={!hasNotificationTargets}
-                    onClick={() => addStep(phase, 'notify')}
+                    <button
+                      className="button dashed"
+                      disabled={!hasMessages}
+                      onClick={() => addStep(phase, 'send')}
+                    >
+                      Send data
+                    </button>
+                  </span>
+                  <span
+                    className="step-action-hint"
+                    title={!hasMessages ? 'Add message data first.' : undefined}
+                    tabIndex={!hasMessages ? 0 : undefined}
                   >
-                    Notify task
-                  </button>
-                </span>
-              </div>
+                    <button
+                      className="button dashed"
+                      disabled={!hasMessages}
+                      onClick={() => addStep(phase, 'receive')}
+                    >
+                      {phase === 'loop' &&
+                      (task.trigger === 'queue' || task.trigger === 'queues')
+                        ? 'Receive an additional sample'
+                        : 'Receive data'}
+                    </button>
+                  </span>
+                  <span
+                    className="step-action-hint"
+                    title={
+                      !hasNotificationTargets
+                        ? 'Set a task to When notified first.'
+                        : undefined
+                    }
+                    tabIndex={!hasNotificationTargets ? 0 : undefined}
+                  >
+                    <button
+                      className="button dashed"
+                      disabled={!hasNotificationTargets}
+                      onClick={() => addStep(phase, 'notify')}
+                    >
+                      Notify task
+                    </button>
+                  </span>
+                </div>
+              )}
             </section>
           ))}
         </main>
@@ -398,7 +435,33 @@ export function TaskScreen({
                   through the Config File.
                 </p>
               )}
+              {baseline && selectedStep.placement && !stepLocked && (
+                <div className="connection-placement">
+                  <FieldLabel label="Connector placement">
+                    <select
+                      aria-label="Connector placement"
+                      value={selectedStep.placement}
+                      onChange={(e) =>
+                        changeStep((s) => {
+                          s.placement = e.target.value as 'start' | 'end';
+                        })
+                      }
+                    >
+                      <option value="start">Start of loop()</option>
+                      <option value="end">End of loop()</option>
+                    </select>
+                  </FieldLabel>
+                  <p className="info-note">
+                    Added automatically on export.{' '}
+                    {selectedStep.kind === 'send' ||
+                    selectedStep.kind === 'write'
+                      ? 'Outgoing values start at their defaults; populate them in the exported task file.'
+                      : 'Use the local sample in your task implementation.'}
+                  </p>
+                </div>
+              )}
               {baseline &&
+                !selectedStep.placement &&
                 selectedStep.kind !== 'placeholder' &&
                 (selectedStep.requiresCode ||
                   preview?.connectionCode?.[selectedStep.id]) && (

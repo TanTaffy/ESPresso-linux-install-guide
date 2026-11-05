@@ -14,6 +14,7 @@ export type Step = {
   timeoutSetting?: string;
   onFailure?: 'continue' | 'return' | 'assert';
   requiresCode?: boolean;
+  placement?: 'start' | 'end';
 };
 export type Task = {
   id: string;
@@ -151,6 +152,7 @@ export type Boot = {
   project: Project;
   recoveryError?: string;
   restored: boolean;
+  recovery?: { name: string };
 };
 export type SaveResult = { path: string } | null;
 export type ExportResult = {
@@ -166,11 +168,13 @@ export interface DesktopApi {
   initialAppearance: Appearance;
   setAppearance(appearance: Appearance): Promise<void>;
   boot(): Promise<Boot>;
+  resolveRecovery(recover: boolean): Promise<Project | null>;
+  openIssues(): Promise<void>;
   preview(project: Project): Promise<Preview>;
   draft(project: Project, dirty: boolean): Promise<void>;
   save(project: Project, saveAs?: boolean): Promise<SaveResult>;
   open(): Promise<{ project: Project; path: string } | null>;
-  importProject(): Promise<{ project: Project } | null>;
+  importProject(mode?: 'file' | 'folder'): Promise<{ project: Project } | null>;
   localLibrary(): Promise<Omit<Library, 'id'> | null>;
   checkLibrary(project: Project): Promise<boolean>;
   export(project: Project): Promise<ExportResult>;

@@ -1,6 +1,13 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeTheme } from 'electron';
-import { readFileSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  nativeTheme,
+  shell,
+} from 'electron';
+import { existsSync, readFileSync } from 'node:fs';
+import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import {
   getTheme,
   getScheme,
@@ -27,6 +34,8 @@ let lastExport: string | null = null;
 let exportParent: string | null = null;
 let latest: Project | null = null;
 let baseline: Project | null = null;
+let pendingRecovery: Project | null = null;
+let recoveryWriteError = '';
 let dirty = false,
   closing = false;
 const entry = path.resolve(__dirname, '../dist/index.html');
@@ -179,11 +188,62 @@ app.whenReady().then(() => {
   });
   register('boot', async () => {
     const r = await newProject();
+    pendingRecovery = null;
+    recoveryWriteError = '';
+    if (existsSync(autosave())) {
+      try {
+        pendingRecovery = (await native({ op: 'load', path: autosave() }))
+          .project;
+      } catch (error) {
+        const backup = path.join(
+          app.getPath('userData'),
+          `recovery-unreadable-${Date.now()}.espresso.json`,
+        );
+        let detail: string;
+        try {
+          await rename(autosave(), backup);
+          detail = `The original file is kept at ${backup}.`;
+        } catch {
+          recoveryWriteError = `Recovery copies are paused to preserve the unreadable file at ${autosave()}.`;
+          detail = recoveryWriteError;
+        }
+        r.recoveryError = [
+          r.recoveryError,
+          `Could not recover the previous session: ${error}. ${detail}`,
+        ]
+          .filter(Boolean)
+          .join('\n');
+      }
+    }
     currentPath = null;
     latest = r.project;
     baseline = r.project;
-    return { ...r, restored: false };
+    return {
+      ...r,
+      restored: false,
+      recovery: pendingRecovery ? { name: pendingRecovery.name } : undefined,
+    };
   });
+  register('resolve-recovery', async (recover: boolean) => {
+    if (typeof recover !== 'boolean')
+      throw new Error('Invalid recovery choice.');
+    if (!pendingRecovery) throw new Error('No previous session is available.');
+    if (!recover) {
+      await rm(autosave(), { force: true });
+      pendingRecovery = null;
+      return null;
+    }
+    const project = pendingRecovery;
+    pendingRecovery = null;
+    currentPath = null;
+    latest = project;
+    baseline = project;
+    dirty = true;
+    return project;
+  });
+  register('open-issues', () =>
+    shell.openExternal('https://github.com/Trovix/ESPresso/issues'),
+  );
   register('import-config', async (project: Project) => {
     const answer = await dialog.showOpenDialog(window, {
       title: 'Import config file',
@@ -242,6 +302,9 @@ app.whenReady().then(() => {
   register('draft', (project: Project, isDirty: boolean) => {
     latest = project;
     dirty = isDirty;
+    if (pendingRecovery)
+      throw new Error('Choose whether to recover the previous session first.');
+    if (recoveryWriteError) throw new Error(recoveryWriteError);
     pendingDraft = project;
     if (!draftRunning) {
       draftRunning = true;
@@ -258,11 +321,25 @@ app.whenReady().then(() => {
     return draftChain.then(() => {});
   });
   register('save', save);
-  register('import-project', async () => {
+  register('import-project', async (mode: 'file' | 'folder' = 'file') => {
+    if (mode !== 'file' && mode !== 'folder')
+      throw new Error('Choose a project file or folder.');
     const answer = await dialog.showOpenDialog(window, {
-      title: 'Import ESPresso project',
-      properties: ['openFile'],
-      filters: [{ name: 'ESPresso project', extensions: ['project.json'] }],
+      title:
+        mode === 'folder'
+          ? 'Choose exported ESPresso project folder'
+          : 'Choose ESPresso project file',
+      properties: [mode === 'folder' ? 'openDirectory' : 'openFile'],
+      ...(mode === 'file'
+        ? {
+            filters: [
+              {
+                name: 'ESPresso project files',
+                extensions: ['project.json', 'layout.json', 'txt'],
+              },
+            ],
+          }
+        : {}),
     });
     if (answer.canceled || !answer.filePaths[0]) return null;
     const result = await native(
@@ -272,7 +349,7 @@ app.whenReady().then(() => {
     currentPath = null;
     latest = result.project;
     baseline = result.project;
-    dirty = false;
+    dirty = true;
     return { project: result.project };
   });
   register('local-library', async () => {
@@ -392,7 +469,7 @@ app.whenReady().then(() => {
         try {
           if (answer.response === 0 && !(await save(latest!))) return;
           await draftChain;
-          if (answer.response === 1 && baseline)
+          if (answer.response === 1 && baseline && !recoveryWriteError)
             await native({ op: 'save', project: baseline, path: autosave() });
           closing = true;
           window.close();

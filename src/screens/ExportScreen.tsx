@@ -66,11 +66,18 @@ export function ExportScreen({
       .catch((e) => setError(String(e)));
   }, [setError]);
   if (!project) return null;
-  const userFiles = Object.keys(preview?.files ?? {}).filter((path) =>
-    /^main\/(tasks|config)\//.test(path),
+  const userFiles = Object.keys(preview?.files ?? {}).filter(
+    (path) =>
+      path === 'main/main.cpp' ||
+      /^main\/config\//.test(path) ||
+      /^main\/tasks\/.*_task\.cpp$/.test(path) ||
+      (!!project.extraFiles?.[path] && !path.startsWith('components/')),
+  );
+  const libraryFiles = Object.keys(preview?.files ?? {}).filter((path) =>
+    path.startsWith('components/'),
   );
   const supportFiles = Object.keys(preview?.files ?? {}).filter(
-    (path) => !userFiles.includes(path),
+    (path) => !userFiles.includes(path) && !libraryFiles.includes(path),
   );
   const unfinished = project.nodes.flatMap((task) =>
     task.kind !== 'task'
@@ -294,7 +301,7 @@ export function ExportScreen({
           </div>
           <p className="info-note">
             Continue editing in this folder. Use “Import edited code” and choose
-            espresso.project.json when returning to ESPresso; “Open layout”
+            this project folder when returning to ESPresso; “Open layout”
             restores the diagram only.
           </p>
         </details>
@@ -305,6 +312,7 @@ export function ExportScreen({
           {(
             [
               ['Your code', userFiles],
+              ['Libraries', libraryFiles],
               ['Generated support', supportFiles],
             ] as const
           ).map(([title, paths]) => (

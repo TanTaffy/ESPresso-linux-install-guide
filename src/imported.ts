@@ -55,6 +55,7 @@ const stepKeys = [
   'taskId',
   'onFailure',
   'timeoutSetting',
+  'placement',
 ];
 const libraryKeys = [
   'id',

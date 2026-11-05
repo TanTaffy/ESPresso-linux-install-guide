@@ -77,30 +77,93 @@ const page = await app.firstWindow(),
   errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 try {
-  await page
+  const setup = page
     .getByRole('dialog')
-    .filter({ hasText: 'Start your program' })
-    .getByRole('button', { name: 'Close', exact: true })
+    .filter({ hasText: 'Start your program' });
+  await setup.getByLabel('Project name', { exact: true }).fill('before-import');
+  await setup
+    .getByRole('button', { name: 'Create program', exact: true })
     .click();
-  await app.evaluate(
-    ({ dialog }, file) => {
-      dialog.showOpenDialog = async () => ({
-        canceled: false,
-        filePaths: [file],
-      });
-    },
-    path.join(original, 'espresso.project.json'),
+  await page
+    .getByRole('button', { name: 'Task Drag onto canvas', exact: true })
+    .click();
+  await page.getByLabel('Task name', { exact: true }).fill('Keep this task');
+  const previousLayout = path.join(data, 'before-import.espresso.json');
+  await app.evaluate(({ dialog }, file) => {
+    dialog.showSaveDialog = async () => ({ canceled: false, filePath: file });
+  }, previousLayout);
+  await page.getByRole('button', { name: 'Save layout', exact: true }).click();
+  await expect(page.getByLabel('Unsaved changes', { exact: true })).toHaveCount(
+    0,
   );
+  const previousBytes = fs.readFileSync(previousLayout, 'utf8');
+  await app.evaluate(({ dialog }, folder) => {
+    dialog.showOpenDialog = async () => ({
+      canceled: false,
+      filePaths: [folder],
+    });
+  }, data);
   await page
     .getByRole('button', { name: 'Import edited code', exact: true })
+    .click();
+  const picker = page.getByRole('dialog', {
+    name: 'Import edited project',
+    exact: true,
+  });
+  await picker
+    .getByRole('button', { name: 'Choose project folder', exact: true })
+    .click();
+  await expect(picker.getByRole('alert')).toContainText(
+    'No espresso.project.json was found',
+  );
+  await expect(page.locator('.task-node')).toContainText('Keep this task');
+  assert.equal(fs.readFileSync(previousLayout, 'utf8'), previousBytes);
+  await app.evaluate(({ dialog }) => {
+    dialog.showOpenDialog = async () => ({ canceled: true, filePaths: [] });
+  });
+  await picker
+    .getByRole('button', { name: 'Choose project file', exact: true })
+    .click();
+  await expect(picker).toBeVisible();
+  await picker.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.locator('.project-label')).toHaveText('before-import');
+  await expect(page.getByLabel('Unsaved changes', { exact: true })).toHaveCount(
+    0,
+  );
+  await app.evaluate(({ dialog }, file) => {
+    dialog.showOpenDialog = async () => ({
+      canceled: false,
+      filePaths: [file],
+    });
+  }, original);
+  await page
+    .getByRole('button', { name: 'Import edited code', exact: true })
+    .click();
+  await picker.screenshot({ path: 'test-results/import-project-picker.png' });
+  await page
+    .getByRole('button', { name: 'Choose project folder', exact: true })
     .click();
   await page
     .getByText('Project imported. Code preserved as a snapshot.', {
       exact: true,
     })
     .waitFor();
+  await expect(
+    page.getByLabel('Unsaved changes', { exact: true }),
+  ).toBeVisible();
+  await expect
+    .poll(
+      () =>
+        JSON.parse(
+          fs.readFileSync(
+            path.join(data, 'profile/recovery.espresso.json'),
+            'utf8',
+          ),
+        ).sourceFiles?.['main/tasks/adc_task.cpp']?.content,
+    )
+    .toBe(wholeSource);
   await expect(page.getByTestId('node-task-adc')).toContainText(
-    'Imported · Limited editing',
+    'Imported · Limited functionality',
   );
   await page.getByTestId('node-task-adc').screenshot({
     path: 'test-results/imported-task-node.png',
@@ -173,19 +236,21 @@ try {
   await expect(
     page.getByRole('textbox', { name: 'Step name', exact: true }),
   ).toBeEnabled();
-  await expect(page.locator('.connection-guide pre')).toContainText(
-    'read_pressure()',
-  );
+  await expect(
+    page.getByLabel('Connector placement', { exact: true }),
+  ).toHaveValue('start');
   await page
-    .getByRole('button', { name: 'Mark code updated', exact: true })
-    .click();
+    .getByLabel('Connector placement', { exact: true })
+    .selectOption('end');
+  await expect(page.locator('.placement-badge')).toHaveText('Loop end');
+  await page
+    .getByLabel('Connector placement', { exact: true })
+    .selectOption('start');
   await expect(page.locator('.connection-guide')).toHaveCount(0);
   await page
     .getByRole('textbox', { name: 'Step name', exact: true })
     .fill('Read another pressure sample');
-  await expect(page.locator('.connection-guide')).toContainText(
-    'Requires code update',
-  );
+  await expect(page.locator('.connection-guide')).toHaveCount(0);
   await page
     .getByRole('button', {
       name: 'Delete step Read another pressure sample',
@@ -200,9 +265,13 @@ try {
     .getByRole('button', { name: 'Publish', exact: true })
     .last()
     .click();
-  await expect(page.locator('.connection-guide pre')).toContainText(
-    'write_pressure',
-  );
+  await expect(
+    page.getByLabel('Connector placement', { exact: true }),
+  ).toHaveValue('end');
+  await expect(page.locator('.placement-badge')).toHaveText([
+    'Loop start',
+    'Loop end',
+  ]);
   await expect(
     page.getByText('Imported task files are preserved.', { exact: true }),
   ).toBeVisible();
@@ -265,20 +334,22 @@ try {
     'utf8',
   );
   assert.match(generated, /pressure.raw_count = 123/);
-  assert.equal(generated, wholeSource);
-  assert.match(
-    fs.readFileSync(
-      path.join(output, 'pressure-node/connection-updates.md'),
-      'utf8',
-    ),
-    /read_pressure/,
+  const originalBody = wholeSource.slice(
+    wholeSource.indexOf('{', wholeSource.indexOf('void loop(')) + 1,
+    wholeSource.lastIndexOf('}\n\n'),
   );
-  assert.match(
-    fs.readFileSync(
-      path.join(output, 'pressure-node/connection-updates.md'),
-      'utf8',
-    ),
-    /write_pressure/,
+  assert.ok(generated.includes(originalBody));
+  assert.ok(generated.includes('#include "MSM_LiveData.hpp"'));
+  assert.ok(generated.includes('#include "generated/adc_connections.hpp"'));
+  const connectionHeader = fs.readFileSync(
+    path.join(output, 'pressure-node/main/generated/adc_connections.hpp'),
+    'utf8',
+  );
+  assert.match(connectionHeader, /read_pressure\(\)/);
+  assert.match(connectionHeader, /write_pressure\(value\)/);
+  assert.equal(
+    fs.existsSync(path.join(output, 'pressure-node/connection-updates.md')),
+    false,
   );
   assert.ok(
     fs.existsSync(

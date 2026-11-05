@@ -9,6 +9,7 @@ import {
   ArrowDownToLine,
   ArrowRight,
   Braces,
+  Bug,
   CircleAlert,
   Cpu,
   FileCode2,
@@ -44,6 +45,8 @@ import { ConfigFileScreen } from './screens/ConfigFileScreen';
 import { DataTypeScreen } from './screens/DataTypeScreen';
 import { TaskIcon } from './components/TaskIcon';
 import { ProjectSetup } from './components/ProjectSetup';
+import { RecoveryPrompt } from './components/RecoveryPrompt';
+import { ImportProjectPicker } from './components/ImportProjectPicker';
 import { TemplatePicker } from './components/TemplatePicker';
 import { version as appVersion } from '../package.json';
 
@@ -152,6 +155,14 @@ export default function App() {
             Save layout
           </button>
           <button
+            className="button quiet"
+            title="Save layout as (Ctrl+Shift+S)"
+            onClick={() => void save(true)}
+            disabled={busy}
+          >
+            Save as…
+          </button>
+          <button
             className="button primary"
             onClick={() => {
               setView('export');
@@ -193,6 +204,19 @@ export default function App() {
           </button>
         ))}
         <div className="history-actions">
+          <button
+            className="icon-button"
+            title="Report an issue on GitHub"
+            aria-label="Report an issue on GitHub"
+            onClick={() => {
+              void window.espresso
+                .openIssues()
+                .catch((e) => setError(String(e)));
+            }}
+            disabled={busy}
+          >
+            <Bug size={17} />
+          </button>
           <ThemeSelector />
           <button
             className="icon-button"
@@ -629,6 +653,14 @@ export default function App() {
           {message}
         </div>
       )}
+      {editor.recovery && (
+        <RecoveryPrompt
+          name={editor.recovery.name}
+          busy={busy}
+          error={error}
+          onChoose={(recover) => void editor.resolveRecovery(recover)}
+        />
+      )}
       {editor.projectSetup && (
         <ProjectSetup
           project={project}
@@ -643,6 +675,14 @@ export default function App() {
         />
       )}
       {editor.templatePicker && <TemplatePicker {...editor} />}
+      {editor.importPicker && (
+        <ImportProjectPicker
+          busy={busy}
+          error={error}
+          onChoose={(mode) => void replaceDocument('import', mode)}
+          onClose={() => editor.setImportPicker(false)}
+        />
+      )}
       {confirm && (
         <div className="modal-backdrop">
           <section

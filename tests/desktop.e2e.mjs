@@ -33,6 +33,9 @@ const screenshotDir = path.join(root, 'test-results');
 fs.mkdirSync(screenshotDir, { recursive: true });
 try {
   await page
+    .getByRole('button', { name: 'Start new layout', exact: true })
+    .click();
+  await page
     .getByRole('dialog')
     .filter({ hasText: 'Start your program' })
     .getByRole('button', { name: 'Close', exact: true })
@@ -45,12 +48,7 @@ try {
     `v${JSON.parse(fs.readFileSync('package.json', 'utf8')).version}`,
   );
   await expect(page.locator('.status-bar')).toHaveCount(0);
-  assert.equal(
-    JSON.parse(
-      fs.readFileSync(path.join(data, 'recovery.espresso.json'), 'utf8'),
-    ).name,
-    'previous-session',
-  );
+  assert.equal(fs.existsSync(path.join(data, 'recovery.espresso.json')), false);
   await page.screenshot({ path: path.join(screenshotDir, 'new-layout.png') });
   await page
     .getByRole('button', {

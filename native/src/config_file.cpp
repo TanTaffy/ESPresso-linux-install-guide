@@ -39,7 +39,7 @@ std::vector<Token> lex(const std::string &s)
 {
     std::vector<Token> out;
     int conditional = 0;
-    for (size_t i = 0; i < s.size();)
+    for (size_t i = s.compare(0, 3, "\xEF\xBB\xBF") == 0 ? 3 : 0; i < s.size();)
     {
         const size_t start = i;
         if (std::isspace(static_cast<unsigned char>(s[i])))

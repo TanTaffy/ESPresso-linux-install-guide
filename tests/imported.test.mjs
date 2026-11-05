@@ -236,3 +236,306 @@ test('edited generated files are rejected at import so supported additions remai
   assert.equal(result.ok, false);
   assert.match(result.error, /generated file changed/);
 });
+
+function placed(id, kind, data, localName, placement) {
+  return {
+    id,
+    kind,
+    name: id,
+    note: '',
+    structId: data,
+    localName,
+    placement,
+    ...(['send', 'receive'].includes(kind)
+      ? { timeoutMs: 25, onFailure: 'return' }
+      : {}),
+  };
+}
+
+test('automatic connectors surround the preserved loop and survive repeated import without duplication', () => {
+  let { p, code } = fixture();
+  const originalBody = code.slice(
+    code.indexOf('{', code.indexOf('void loop(')) + 1,
+    code.lastIndexOf('}\n\n'),
+  );
+  p.nodes[0].loop.push(placed('new-read', 'read', 'samples', 'fresh', 'start'));
+  p.nodes[0].loop.push(
+    placed('new-write', 'write', 'samples', 'outgoing', 'end'),
+  );
+  const header = (p.sourceFiles['main/tasks/adc_task.hpp'].content +=
+    '\n// My custom task declarations.\n');
+  const parameterHeader = request({ op: 'preview', project: p }).files[
+    'main/tasks/adc_parameters.hpp'
+  ];
+  p.sourceFiles['main/tasks/adc_parameters.hpp'] = {
+    content: parameterHeader + '\n// My parameter helper.\n',
+    generated: parameterHeader,
+    taskId: 'adc',
+  };
+  let preview = request({ op: 'preview', project: p });
+  assert.equal(preview.valid, true, JSON.stringify(preview.diagnostics));
+  const extended = preview.files['main/tasks/adc_task.cpp'];
+  assert.ok(extended.includes(originalBody));
+  assert.ok(
+    extended.indexOf('fresh = ::espresso::tasks::adc::connections::') <
+      extended.indexOf('sample.value += 17;'),
+  );
+  assert.ok(
+    extended.lastIndexOf('(outgoing);') >
+      extended.indexOf('sample.value += 17;'),
+  );
+  assert.equal(preview.files['main/tasks/adc_task.hpp'], header);
+  assert.ok(
+    preview.files['main/tasks/adc_parameters.hpp'].endsWith(
+      '// My parameter helper.\n',
+    ),
+  );
+  assert.equal(preview.files['connection-updates.md'], undefined);
+  assert.equal(p.sourceFiles['main/tasks/adc_task.cpp'].content, code);
+  assert.equal(
+    request({ op: 'preview', project: p }).files['main/tasks/adc_task.cpp'],
+    extended,
+  );
+  for (let i = 0; i < 2; ++i) {
+    const folder = request({
+      op: 'export',
+      project: p,
+      path: fs.mkdtempSync(path.join(os.tmpdir(), 'espresso-placed-')),
+    }).path;
+    p = request({ op: 'import-project', path: folder }).project;
+    preview = request({ op: 'preview', project: p });
+    assert.equal(preview.valid, true, JSON.stringify(preview.diagnostics));
+    assert.equal(preview.files['main/tasks/adc_task.cpp'], extended);
+    assert.ok(preview.files['main/generated/adc_connections.hpp']);
+  }
+  // Additional connectors can still be added after previous additions become preserved code.
+  p.nodes[0].loop.push(
+    placed('another-read', 'read', 'samples', 'another', 'start'),
+  );
+  preview = request({ op: 'preview', project: p });
+  assert.equal(preview.valid, true, JSON.stringify(preview.diagnostics));
+  assert.equal(
+    preview.files['main/tasks/adc_task.cpp'].split(
+      'fresh = ::espresso::tasks::adc::connections::',
+    ).length - 1,
+    1,
+  );
+});
+
+test('automatic connector placement respects C++ literals, nested namespaces, BOMs and CRLF', () => {
+  for (const nested of [false, true]) {
+    const { p } = fixture();
+    let source = p.sourceFiles['main/tasks/adc_task.cpp'].content;
+    source = source.replace(
+      'sample.value += 17;',
+      "[[maybe_unused]] const char* text = u8R\"tag(} fake void loop() { //)tag\";\n    [[maybe_unused]] const char brace = '}';\n    [[maybe_unused]] const int n = 1'000;\n    /* } } */ sample.value += 17;",
+    );
+    if (nested)
+      source =
+        source.replace(
+          'namespace espresso::tasks::adc {',
+          'namespace espresso { namespace tasks { namespace adc {',
+        ) + '\n} }\n';
+    source = source.replace(
+      'sample.value += 17;',
+      '#if defined(HARDWARE_VARIANT)\n    { sample.value += 17; }\n#else\n    sample.value += 17;\n#endif',
+    );
+    source = '\uFEFF' + source.replaceAll('\n', '\r\n');
+    p.sourceFiles['main/tasks/adc_task.cpp'].content = source;
+    p.nodes[0].loop.push(
+      placed('read-new', 'read', 'samples', 'fresh', 'start'),
+    );
+    const preview = request({ op: 'preview', project: p });
+    assert.equal(preview.valid, true, JSON.stringify(preview.diagnostics));
+    const output = preview.files['main/tasks/adc_task.cpp'];
+    assert.ok(output.startsWith('\uFEFF'));
+    assert.ok(output.includes('u8R"tag(} fake void loop() { //)tag"'));
+    assert.equal(output.replaceAll('\r\n', '').includes('\n'), false);
+    assert.equal(p.sourceFiles['main/tasks/adc_task.cpp'].content, source);
+  }
+});
+
+test('ambiguous loops and colliding names block export without changing imported source', () => {
+  const { p } = fixture();
+  p.nodes[0].loop.push(placed('read-new', 'read', 'samples', 'fresh', 'start'));
+  for (const mutate of [
+    (source) => source.replace('void loop()', 'void another_loop()'),
+    (source) =>
+      source + '\nnamespace espresso::tasks::adc { void loop() {} }\n',
+    (source) =>
+      source.replace('void loop()', '#if HARDWARE_VARIANT\nvoid loop()') +
+      '\n#endif\n',
+    (source) =>
+      source.replace(
+        'sample.value += 17;',
+        'const int fresh = 7; sample.value += fresh;',
+      ),
+  ]) {
+    const changed = structuredClone(p);
+    const source = mutate(
+      changed.sourceFiles['main/tasks/adc_task.cpp'].content,
+    );
+    changed.sourceFiles['main/tasks/adc_task.cpp'].content = source;
+    const preview = request({ op: 'preview', project: changed });
+    assert.equal(preview.valid, false);
+    assert.ok(preview.diagnostics.some((d) => d.severity === 'error'));
+    assert.equal(
+      changed.sourceFiles['main/tasks/adc_task.cpp'].content,
+      source,
+    );
+  }
+});
+
+test('new library assignments add headers and build registration while preserving customised libraries', () => {
+  const { p } = fixture();
+  const original = p.sourceFiles['main/tasks/adc_task.cpp'].content;
+  p.extraFiles['components/Sensor/Sensor.hpp'] = Buffer.from(
+    '#pragma once\n// My patched sensor library.\n',
+  ).toString('base64');
+  p.libraries.push({
+    id: 'new-lib',
+    name: 'NewLibrary',
+    source: 'local',
+    version: 'local',
+    headers: ['NewLibrary.hpp'],
+    dependencies: ['freertos'],
+    files: {
+      'NewLibrary.hpp':
+        '#pragma once\nnamespace extra { inline int value() { return 9; } }\n',
+    },
+  });
+  p.nodes[0].libraryIds.push('new-lib');
+  const preview = request({ op: 'preview', project: p });
+  assert.equal(preview.valid, true, JSON.stringify(preview.diagnostics));
+  assert.ok(
+    preview.files['main/tasks/adc_task.cpp'].includes(
+      '#include "NewLibrary.hpp"',
+    ),
+  );
+  assert.ok(
+    preview.files['main/generated/project.cmake'].includes('NewLibrary'),
+  );
+  assert.ok(
+    preview.files['components/NewLibrary/CMakeLists.txt'].includes(
+      'REQUIRES freertos',
+    ),
+  );
+  assert.equal(
+    preview.files['components/Sensor/Sensor.hpp'],
+    '#pragma once\n// My patched sensor library.\n',
+  );
+  assert.equal(p.sourceFiles['main/tasks/adc_task.cpp'].content, original);
+});
+
+test('extended imported C++ compiles and executes input/output, notification, timeout and early-return behaviour', () => {
+  const { p } = fixture();
+  p.libraries.push({
+    id: 'extra-lib',
+    name: 'NewLibrary',
+    source: 'local',
+    version: 'local',
+    headers: ['NewLibrary.hpp'],
+    dependencies: [],
+    files: {
+      'NewLibrary.hpp':
+        '#pragma once\nnamespace extra { inline int value() { return 9; } }\n',
+    },
+  });
+  p.nodes[0].libraryIds.push('extra-lib');
+  p.sourceFiles['main/tasks/adc_task.cpp'].content = p.sourceFiles[
+    'main/tasks/adc_task.cpp'
+  ].content
+    .replace(
+      'namespace espresso::tasks::adc {',
+      '/* Keep this multiline comment\n   intact. */ int library_probe() { return extra::value(); }\n\nnamespace espresso::tasks::adc {',
+    )
+    .replace(
+      'sample.value += 17;',
+      'sample.value += 17;\n    if (sample.value < 0) return;',
+    );
+  p.nodes.push({
+    id: 'messages',
+    kind: 'struct',
+    name: 'Messages',
+    symbol: 'messages',
+    typeName: 'Message',
+    position: { x: 0, y: 0 },
+    delivery: 'queue',
+    capacity: 8,
+    fields: [
+      {
+        id: 'message-value',
+        name: 'value',
+        type: 'int32_t',
+        initialValue: '0',
+      },
+    ],
+  });
+  const logger = task('logger');
+  logger.libraryIds = [];
+  logger.parameters = [];
+  logger.loop = [];
+  logger.trigger = 'notification';
+  p.nodes.push(logger);
+  p.nodes[0].loop.push(
+    placed('queue-input', 'receive', 'messages', 'fresh', 'start'),
+  );
+  p.nodes[0].loop.push({
+    ...placed('queue-output', 'send', 'messages', 'fresh', 'end'),
+    timeoutMs: 50,
+  });
+  p.nodes[0].loop.push({
+    id: 'notify-added',
+    kind: 'notify',
+    name: 'Notify logger',
+    note: '',
+    taskId: 'logger',
+    placement: 'end',
+  });
+  const root = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'espresso-imported-runtime-'),
+  );
+  const output = request({ op: 'export', project: p, path: root }).path;
+  const cache = fs.readFileSync('build/native/CMakeCache.txt', 'utf8');
+  const cmake =
+    cache.match(/^CMAKE_COMMAND:INTERNAL=(.*)$/m)?.[1].trim() ?? 'cmake';
+  const build = path.join(root, 'build');
+  const run = (args) => {
+    try {
+      return execFileSync(cmake, args, { encoding: 'utf8', windowsHide: true });
+    } catch (error) {
+      throw new Error(`${error.message}\n${error.stdout}\n${error.stderr}`);
+    }
+  };
+  run([
+    '-S',
+    path.resolve('tests/imported-firmware'),
+    '-B',
+    build,
+    '-DFIRMWARE=' + output,
+    '-G',
+    'Visual Studio 17 2022',
+    '-A',
+    'x64',
+  ]);
+  run(['--build', build, '--config', 'Release']);
+  const result = execFileSync(
+    path.join(build, 'Release/imported-check.exe'),
+    [],
+    { encoding: 'utf8', windowsHide: true },
+  );
+  assert.match(
+    result,
+    /Imported connectors, payloads, timeouts and early returns passed/,
+  );
+  const imported = request({ op: 'import-project', path: output }).project;
+  const next = request({
+    op: 'export',
+    project: imported,
+    path: fs.mkdtempSync(path.join(os.tmpdir(), 'espresso-runtime-again-')),
+  }).path;
+  assert.equal(
+    fs.readFileSync(path.join(next, 'main/tasks/adc_task.cpp'), 'utf8'),
+    fs.readFileSync(path.join(output, 'main/tasks/adc_task.cpp'), 'utf8'),
+  );
+});

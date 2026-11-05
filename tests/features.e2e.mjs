@@ -264,6 +264,9 @@ try {
   page.setDefaultTimeout(15000);
   page.on('pageerror', (e) => errors.push(e.message));
   await page
+    .getByRole('button', { name: 'Start new layout', exact: true })
+    .click();
+  await page
     .getByRole('dialog')
     .filter({ hasText: 'Start your program' })
     .getByRole('button', { name: 'Close', exact: true })
@@ -527,6 +530,9 @@ try {
     .click();
   await page
     .getByRole('button', { name: 'Continue without saving', exact: true })
+    .click();
+  await page
+    .getByRole('button', { name: 'Choose project file', exact: true })
     .click();
   await expect(
     page.getByText('Project imported. Code preserved as a snapshot.', {

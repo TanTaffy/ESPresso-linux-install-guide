@@ -429,7 +429,7 @@ std::string queue_step_function(const json &p, const json &t, const json &select
     {
         for (const auto *phase : {"setup", "loop"})
             for (const auto &step : task[phase])
-                if ((step["kind"] == "send" || step["kind"] == "receive") &&
+                if (!placed_connection(step) && (step["kind"] == "send" || step["kind"] == "receive") &&
                     ids.insert(step["id"]).second)
                     steps.push_back(step);
     };
@@ -465,7 +465,7 @@ std::string parameter_header(const json &p, const json &t)
     bool receives = false;
     for (const auto *phase : {"setup", "loop"})
         for (const auto &step : t[phase])
-            if (step["kind"] == "send" || step["kind"] == "receive")
+            if (!placed_connection(step) && (step["kind"] == "send" || step["kind"] == "receive"))
             {
                 receives |= step["kind"] == "receive";
                 for (const auto &node : p["nodes"])
@@ -480,7 +480,7 @@ std::string parameter_header(const json &p, const json &t)
            " {\nnamespace parameters = ::" + config_namespace(t) + ";\n";
     for (const auto *phase : {"setup", "loop"})
         for (const auto &step : t[phase])
-            if (step["kind"] == "send" || step["kind"] == "receive")
+            if (!placed_connection(step) && (step["kind"] == "send" || step["kind"] == "receive"))
                 for (const auto &node : p["nodes"])
                     if (node["id"] == step["structId"])
                     {

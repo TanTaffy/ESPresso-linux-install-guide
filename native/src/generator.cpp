@@ -51,11 +51,25 @@ void add_skeleton_headers(const json &p, Files &files)
             const auto owner = task_file_owner(p, name);
             if (!owner.empty() && extension == ".cpp")
                 header = "//" + task_pun(owner) + "\n";
-            text = header + "//" + skeleton_credit + "\n\n" + text;
+            std::string role = "// ESPresso: GENERATED FILE. Change wiring in ESPresso; keep this file unchanged.\n";
+            if (!owner.empty() && extension == ".cpp")
+                role = "// ESPresso: USER FILE. Implement task logic here; keep setup()/loop() signatures unchanged.\n";
+            else if (name == "main/" + config_path(p))
+                role = "// ESPresso: USER CONFIG. Edit hardware settings and constants here; keep task namespaces.\n";
+            else if (name == "main/main.cpp")
+                role = "// ESPresso: USER INITIALISATION. Initialise shared hardware before start_tasks().\n";
+            text = header + "//" + skeleton_credit + "\n\n" + role + text;
         }
         else if (fs::path(name).filename() == "CMakeLists.txt" || extension == ".cmake" ||
                  name == "sdkconfig.defaults" || name == ".gitignore")
-            text = "#" + std::string(skeleton_credit) + "\n\n" + text;
+        {
+            std::string role;
+            if (name == "main/CMakeLists.txt")
+                role = "# ESPresso: USER BUILD. Append custom sources/dependencies; keep the generated include and variables.\n";
+            else if (name.rfind("main/generated/", 0) == 0)
+                role = "# ESPresso: GENERATED FILE. Configure tasks and libraries in ESPresso.\n";
+            text = "#" + std::string(skeleton_credit) + "\n\n" + role + text;
+        }
         else if (extension == ".md")
             text = "<!--" + std::string(skeleton_credit) + "-->\n\n" + text;
     }
@@ -393,6 +407,8 @@ Files generate(const json &p, json *diagnostics)
             lifecycle_comment(t, by_id, "loop") + "void loop(" + loop_parameters(t, by_id) +
             ");\n}\n";
         files["main/tasks/" + sym + "_parameters.hpp"] = parameter_header(p, t);
+        const auto connections = imported_connection_header(p, t);
+        if (!connections.empty()) files["main/generated/" + sym + "_connections.hpp"] = connections;
         std::string source =
             "#include \"" + sym + "_task.hpp\"\n#include \"" + sym + "_parameters.hpp\"\n";
         std::set<std::string> includes;
@@ -410,14 +426,16 @@ Files generate(const json &p, json *diagnostics)
         for (const auto &s : includes)
             source += s == "@runtime" ? "#include \"generated/task_runtime.hpp\"\n"
                                       : "#include \"shared/" + s + ".hpp\"\n";
+        source += "// ESPresso: USER INCLUDES. Add driver/library headers below.\n";
         source += base_code(p, region_key("includes", t["id"]), "");
+        source += "// ESPresso: USER HELPERS. Add helper functions and types below.\n";
         source += base_code(p, region_key("helpers", t["id"]), "");
         source += "\nnamespace espresso::tasks::" + sym + " {\n";
         bool added_types = false;
         std::set<std::string> task_functions;
         for (const auto *phase : {"setup", "loop"})
             for (const auto &step : t[phase])
-                if (step["kind"] != "placeholder" && step["kind"] != "notify")
+                if (!placed_connection(step) && step["kind"] != "placeholder" && step["kind"] != "notify")
                 {
                     const auto &data = by_id.at(step["structId"]);
                     const std::string tn = data["typeName"], ss = data["symbol"];
@@ -439,6 +457,7 @@ Files generate(const json &p, json *diagnostics)
             source += "using " + function + ";\n";
         if (added_types || !task_functions.empty())
             source += "\n";
+        source += "// ESPresso: USER STATE. Add persistent task-owned objects and variables below.\n";
         source += base_code(p, region_key("state", t["id"]), "");
         for (const auto *phase : {"setup", "loop"})
         {
@@ -457,7 +476,7 @@ Files generate(const json &p, json *diagnostics)
             }
             std::set<std::string> locals;
             for (const auto &step : t[phase])
-                if (step["kind"] != "placeholder" && step["kind"] != "notify")
+                if (!placed_connection(step) && step["kind"] != "placeholder" && step["kind"] != "notify")
                 {
                     const std::string local = step["localName"];
                     if (locals.insert(local).second)
@@ -472,14 +491,17 @@ Files generate(const json &p, json *diagnostics)
                 }
             if (!locals.empty())
                 source += "\n";
+            source += "    // ESPresso: USER LOCALS. Add variables shared by implementation steps below.\n";
             source += base_code(p, region_key(std::string(phase) + "vars", t["id"]), "");
             for (const auto &step : t[phase])
             {
+                if (placed_connection(step)) continue;
                 const std::string kind = step["kind"];
                 if (kind != "placeholder")
                     source += prose_comment(comment(step["name"]), "    ");
                 if (kind == "placeholder")
                 {
+                    source += "    // ESPresso: USER IMPLEMENTATION. Fill in this step below.\n";
                     const auto body = base_code(p, region_key("step", step["id"]), "");
                     const bool implemented = contains_code(body);
                     source += prose_comment(comment(step["name"]), "    ", implemented ? "" : "TODO: ");
@@ -587,7 +609,19 @@ Files generate(const json &p, json *diagnostics)
         p["target"].get<std::string>() +
         "` and `idf.py build`.\n3. Fill in the TODO sections in `main/tasks/*_task.cpp` and add "
         "driver dependencies to `main/CMakeLists.txt`.\n4. Build, flash and monitor with ESP-IDF "
-        "as usual.\n\nEach task owns setup() and loop(). setup() runs once inside the task. "
+        "as usual.\n\n## Where to edit\n\n"
+        "| Files | Expected changes |\n| --- | --- |\n"
+        "| `main/tasks/*_task.cpp` | Implement TODO steps; add your headers, helpers, state and local variables in the labelled areas. Keep setup/loop signatures. |\n"
+        "| `main/" + config_path(p) + "` | Edit hardware settings, calibration and constants. Keep task namespaces. |\n"
+        "| `components/<library>/` | Modify library source when needed; imported library changes are preserved. |\n"
+        "| `main/main.cpp` | Initialise shared hardware before start_tasks() when needed. |\n"
+        "| `main/CMakeLists.txt` | Append custom source files or dependencies; keep the generated include and registration variables. |\n"
+        "| `main/generated/`, `main/shared/`, task `*_task.hpp` and `*_parameters.hpp` | Generated support. Change data, wiring and task settings in ESPresso. |\n\n"
+        "Imported tasks have limited functionality: new connectors can run at the start or end of loop(). "
+        "An early return skips end connectors. Use incoming samples and populate outgoing values in your "
+        "implementation; adding a connector does not implement your application logic. "
+        "Unusual loop definitions may need manual integration; ESPresso reports conflicts without changing the original file.\n\n"
+        "Each task owns setup() and loop(). setup() runs once inside the task. "
         "Periodic loops "
         "use vTaskDelayUntil(); queue-triggered loops receive one typed message as event; "
         "notification-triggered "
@@ -616,8 +650,8 @@ Files generate(const json &p, json *diagnostics)
         "Additional source, assets and custom build entries are retained. Generated build "
         "lists live in main/generated/project.cmake; add custom sources and dependencies to "
         "ESPRESSO_SOURCES and ESPRESSO_REQUIRES in main/CMakeLists.txt before registration. "
-        "Export to a fresh folder. Imported tasks and interfaces are protected. New connectors "
-        "need manual integration; see connection-updates.md when present. Configure library "
+        "Export to a fresh folder. Imported tasks and interfaces are protected. New start/end "
+        "connectors are inserted on export; legacy manual connectors use connection-updates.md when present. Configure library "
         "dependencies in ESPresso.\n";
     const auto pending = pending_connections(p);
     if (!pending.empty())

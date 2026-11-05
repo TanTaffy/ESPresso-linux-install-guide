@@ -16,7 +16,7 @@ json pick(const json &item, std::initializer_list<const char *> keys)
 json step_interface(const json &step)
 {
     return pick(step, {"id", "name", "kind", "note", "structId", "localName", "taskId", "onFailure",
-                       "timeoutSetting"});
+                       "timeoutSetting", "placement"});
 }
 json library_interface(const json &library)
 {
@@ -96,6 +96,12 @@ json validate_imported(const json &p)
                     existing.push_back(step_interface(step));
                 else if (step["kind"] == "placeholder")
                     issue("Only new input/output connectors can be added to imported tasks.", id);
+                else if (placed_connection(step))
+                {
+                    const auto path = "main/tasks/" + current->at("symbol").get<std::string>() + "_task.cpp";
+                    if (!p.value("sourceFiles", json::object()).contains(path))
+                        issue("Import the task source before adding automatic loop connectors.", id);
+                }
             if (existing != expected)
                 issue("Imported steps and connections cannot be edited, reordered or removed.", id);
         }
@@ -172,7 +178,7 @@ json pending_connections(const json &p)
         if (task["kind"] == "task")
             for (const auto *phase : {"setup", "loop"})
                 for (const auto &step : task[phase])
-                    if (step.value("requiresCode", false))
+                    if (step.value("requiresCode", false) && !placed_connection(step))
                         result[step["id"].get<std::string>()] =
                             connection_code(p, task, step, phase);
     return result;

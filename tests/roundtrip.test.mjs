@@ -5,8 +5,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const request = (value) => {
-  const response = JSON.parse(
+const call = (value) =>
+  JSON.parse(
     execFileSync('build/native/Release/espresso-core.exe', [], {
       input: JSON.stringify(value),
       encoding: 'utf8',
@@ -14,6 +14,8 @@ const request = (value) => {
       maxBuffer: 24 * 1024 * 1024,
     }),
   );
+const request = (value) => {
+  const response = call(value);
   assert.equal(response.ok, true, response.error);
   return response.result;
 };
@@ -47,6 +49,133 @@ const exportTo = (p) =>
     project: p,
     path: fs.mkdtempSync(path.join(os.tmpdir(), 'espresso-roundtrip-')),
   }).path;
+
+test('project re-import accepts a folder, manifest, exported layout or root CMake file', () => {
+  const folder = exportTo(project());
+  for (const selection of [
+    folder,
+    ...['espresso.project.json', 'espresso.layout.json', 'CMakeLists.txt'].map(
+      (name) => path.join(folder, name),
+    ),
+  ]) {
+    const imported = request({ op: 'import-project', path: selection }).project;
+    assert.equal(imported.nodes[0].symbol, 'adc');
+    assert.equal(request({ op: 'preview', project: imported }).valid, true);
+  }
+});
+
+test('Windows line endings and UTF-8 BOMs import while task and config bytes survive repeated export', () => {
+  let folder = exportTo(project());
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(folder, 'espresso.project.json'), 'utf8'),
+  );
+  const originals = {};
+  for (const name of Object.keys(manifest.files)) {
+    if (!/\.(cpp|hpp|h|cmake)$/.test(name)) continue;
+    let text = fs.readFileSync(path.join(folder, name), 'utf8');
+    if (name === 'main/tasks/adc_task.cpp')
+      text += '\n// Preserve my code and encoding.\n';
+    if (name === 'main/config/Config.hpp')
+      text = text.replace('PRIORITY = 2', 'PRIORITY = 5');
+    originals[name] = '\uFEFF' + text.replaceAll('\n', '\r\n');
+    fs.writeFileSync(path.join(folder, name), originals[name]);
+  }
+  for (let i = 0; i < 2; ++i) {
+    const imported = request({ op: 'import-project', path: folder }).project;
+    assert.equal(imported.nodes[0].priority, 5);
+    folder = exportTo(imported);
+    for (const name of [
+      'main/tasks/adc_task.cpp',
+      'main/tasks/adc_task.hpp',
+      'main/config/Config.hpp',
+    ])
+      assert.equal(
+        fs.readFileSync(path.join(folder, name), 'utf8'),
+        originals[name],
+      );
+  }
+  const runtime = path.join(folder, 'main/generated/task_runtime.cpp');
+  fs.appendFileSync(runtime, '\nvoid unsupported_runtime_change() {}\n');
+  const rejected = call({ op: 'import-project', path: folder });
+  assert.equal(rejected.ok, false);
+  assert.match(rejected.error, /task_runtime.cpp: generated file changed/);
+});
+
+test('deleted optional files regenerate and edited project preferences remain byte-for-byte intact', () => {
+  let folder = exportTo(project());
+  for (const name of ['README.md', '.vscode/settings.json'])
+    fs.unlinkSync(path.join(folder, name));
+  const edited = {
+    '.gitignore': '# My exclusions\r\nbuild/\r\nprivate-notes/\r\n',
+    'sdkconfig.defaults':
+      'CONFIG_FREERTOS_HZ=1000\r\nCONFIG_LOG_DEFAULT_LEVEL=4\r\n',
+  };
+  for (const [name, content] of Object.entries(edited))
+    fs.writeFileSync(path.join(folder, name), content);
+  for (let i = 0; i < 2; ++i) {
+    const imported = request({ op: 'import-project', path: folder }).project;
+    folder = exportTo(imported);
+    assert.ok(fs.existsSync(path.join(folder, 'README.md')));
+    assert.ok(fs.existsSync(path.join(folder, '.vscode/settings.json')));
+    for (const [name, content] of Object.entries(edited))
+      assert.equal(fs.readFileSync(path.join(folder, name), 'utf8'), content);
+  }
+  fs.unlinkSync(path.join(folder, '.gitignore'));
+  const again = exportTo(
+    request({ op: 'import-project', path: folder }).project,
+  );
+  assert.ok(fs.existsSync(path.join(again, '.gitignore')));
+});
+
+test('import excludes generated build trees while retaining nested source folders named build', () => {
+  const folder = exportTo(project());
+  const files = {
+    'main/build/helper.cpp': 'int helper() { return 42; }\n',
+    'main/build/helper.hpp': '#pragma once\nint helper();\n',
+    'build/output.bin': 'Ignore ordinary build output',
+    'build-debug/CMakeCache.txt': '# A generated CMake build tree\n',
+    'build-debug/CMakeFiles/cache.bin': 'Ignore CMake output',
+    'build-debug/firmware.bin': 'x'.repeat(13 * 1024 * 1024),
+    '.git/objects/test': 'Ignore Git metadata',
+  };
+  for (const [name, content] of Object.entries(files)) {
+    fs.mkdirSync(path.dirname(path.join(folder, name)), { recursive: true });
+    fs.writeFileSync(path.join(folder, name), content);
+  }
+  const imported = request({ op: 'import-project', path: folder }).project;
+  assert.deepEqual(
+    Object.keys(imported.extraFiles)
+      .filter(
+        (name) =>
+          !name.startsWith('.vscode') &&
+          name !== 'README.md' &&
+          name !== '.gitignore' &&
+          name !== 'sdkconfig.defaults',
+      )
+      .sort(),
+    ['main/build/helper.cpp', 'main/build/helper.hpp'],
+  );
+  const exported = exportTo(imported);
+  for (const name of ['main/build/helper.cpp', 'main/build/helper.hpp'])
+    assert.equal(
+      fs.readFileSync(path.join(exported, name), 'utf8'),
+      files[name],
+    );
+});
+
+test('import explains missing metadata and selecting an ordinary saved layout', () => {
+  const folder = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'espresso-import-selection-'),
+  );
+  const missing = call({ op: 'import-project', path: folder });
+  assert.equal(missing.ok, false);
+  assert.match(missing.error, /No espresso.project.json was found/);
+  const layout = path.join(folder, 'saved.espresso.json');
+  fs.writeFileSync(layout, JSON.stringify(project()));
+  const wrong = call({ op: 'import-project', path: layout });
+  assert.equal(wrong.ok, false);
+  assert.match(wrong.error, /saved layout. Use Open layout/);
+});
 
 test('new CAN settings inherit the pressure example indentation without adding blank lines', () => {
   const p = JSON.parse(

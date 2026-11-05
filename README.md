@@ -14,7 +14,17 @@ A Windows app for designing FreeRTOS tasks and exporting ESP-IDF C++ skeletons.
 
 The pressure example samples every 100 ms and wakes CAN with the latest unread pressure value.
 
-Use **Save layout** to save your diagram. After editing exported C++, use **Import edited code** and select `espresso.project.json` to bring those changes back into ESPresso. Re-exports create a fresh folder and preserve imported task code.
+Use **Save layout** to save your diagram. After editing exported C++, use **Import edited code** and choose the exported project folder or its `espresso.project.json` file. Selecting the exported `espresso.layout.json` or root `CMakeLists.txt` also finds the project manifest beside it. Keep that manifest with the project. Re-exports create a fresh folder and preserve imported task code.
+
+Re-import accepts UTF-8 BOMs and Windows line endings, preserves edited `.gitignore` and `sdkconfig.defaults` files, and regenerates missing documentation or VS Code settings. Build output and Git metadata are excluded; additional source files are retained. Imported layouts are marked unsaved and included in session recovery.
+
+Imported tasks have limited functionality: add connectors at the **start or end of `loop()`**. ESPresso adds their transport code on export and preserves the existing loop body. Early returns skip end connectors. Use received values and populate outgoing samples in your implementation. New library assignments add their headers and build dependencies. Existing flow, data definitions and triggers remain protected.
+
+The exported README and file comments identify where to edit: task implementations, configuration and library source are the normal working areas; shared-hardware initialisation belongs in `main/main.cpp` when needed. Runtime, transport and task interface headers are generated support.
+
+Use **Save as…** (Ctrl+Shift+S) to save a separate copy of a layout. On the next launch, ESPresso offers to recover your previous session; recovered layouts need to be saved to a layout file. Unreadable recovery files are preserved for troubleshooting.
+
+Use the bug icon beside the theme selector to [report an issue on GitHub](https://github.com/Trovix/ESPresso/issues).
 
 ## Run from source
 

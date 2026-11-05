@@ -53,6 +53,8 @@ export function useEditor() {
     setViewState(next);
   }
   const [projectSetup, setProjectSetup] = useState(false);
+  const [recovery, setRecovery] = useState<{ name: string } | null>(null);
+  const [importPicker, setImportPicker] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>('task-adc'),
     [stepSelection, setStepSelection] = useState<StepSelection | null>(null);
   const [nodeDimensions, setNodeDimensions] = useState<
@@ -150,7 +152,8 @@ export function useEditor() {
       .then((result) => {
         if (!alive) return;
         setProject(result.project);
-        setProjectSetup(!result.project.nodes.length);
+        setRecovery(result.recovery ?? null);
+        setProjectSetup(!result.recovery && !result.project.nodes.length);
         setSelectedId(
           result.project.nodes.find((n) => n.kind === 'task')?.id ?? null,
         );
@@ -283,13 +286,37 @@ export function useEditor() {
       notify('Layout saved');
     }
   }
+  async function resolveRecovery(recover: boolean) {
+    await run(async () => {
+      const restored = await window.espresso.resolveRecovery(recover);
+      if (restored) {
+        setProject(restored);
+        setDirty(true);
+        setSelectedId(restored.nodes[0]?.id ?? null);
+        fitPending.current = true;
+        setFitRevision((value) => value + 1);
+        notify('Previous session recovered. Save your layout to keep it.');
+      } else {
+        setProjectSetup(true);
+      }
+      setRecovery(null);
+    });
+  }
   async function replaceDocument(
     action: 'new' | 'example' | 'open' | 'import',
+    importMode?: 'file' | 'folder',
   ) {
+    if (action === 'import' && !importMode) {
+      setConfirm(null);
+      setError('');
+      setImportPicker(true);
+      return;
+    }
     await run(async () => {
       if (action === 'import') {
-        const result = await window.espresso.importProject();
+        const result = await window.espresso.importProject(importMode);
         if (!result) return;
+        setImportPicker(false);
         setProject(result.project);
         setSavedPath(null);
         setSelectedId(result.project.nodes[0]?.id ?? null);
@@ -318,7 +345,7 @@ export function useEditor() {
       fitPending.current = true;
       setFitRevision((value) => value + 1);
       setRedo([]);
-      setDirty(false);
+      setDirty(action === 'import');
       setStepSelection(null);
       setView('canvas');
       setExportPath('');
@@ -396,6 +423,22 @@ export function useEditor() {
     fitPending.current = true;
     notify(`${kind === 'task' ? 'Task' : 'Data'} added`);
   }
+  function connectorLocal(taskId: string, proposed: string, except?: string) {
+    if (!importedNode(project, taskId)) return proposed;
+    const task = project?.nodes.find((n) => n.id === taskId);
+    const source = Object.values(project?.sourceFiles ?? {})
+      .filter((file) => file.taskId === taskId)
+      .map((file) => file.content)
+      .join('\n');
+    const used = new Set(source.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? []);
+    if (task?.kind === 'task')
+      for (const step of [...task.setup, ...task.loop])
+        if (step.id !== except && step.localName) used.add(step.localName);
+    let local = proposed,
+      suffix = 2;
+    while (used.has(local)) local = `${proposed}_${suffix++}`;
+    return local;
+  }
   function addTaskData(direction: 'input' | 'output') {
     if (!project || !task) return;
     const id = uid(),
@@ -437,10 +480,15 @@ export function useEditor() {
           name: stepLabel(direction === 'output' ? 'send' : 'receive', data),
           note: '',
           structId: id,
-          localName: symbol,
+          localName: connectorLocal(task.id, symbol),
           timeoutMs: 0,
           onFailure: 'return',
-          ...(importedNode(p, target.id) ? { requiresCode: true } : {}),
+          ...(importedNode(p, target.id)
+            ? {
+                placement:
+                  direction === 'input' ? ('start' as const) : ('end' as const),
+              }
+            : {}),
         });
     });
     setSelectedId(id);
@@ -534,7 +582,11 @@ export function useEditor() {
     notify(`${n.name} deleted. Undo is available.`);
   }
   function addStep(phase: Phase, kind: Step['kind'] = 'placeholder') {
-    if (task && importedNode(project, task.id) && kind === 'placeholder')
+    if (
+      task &&
+      importedNode(project, task.id) &&
+      (kind === 'placeholder' || phase !== 'loop')
+    )
       return;
     const id = uid();
     const s: Step = {
@@ -553,7 +605,14 @@ export function useEditor() {
                   ? 'Read shared data'
                   : 'Publish shared data',
       note: '',
-      ...(task && importedNode(project, task.id) ? { requiresCode: true } : {}),
+      ...(task && importedNode(project, task.id)
+        ? {
+            placement:
+              kind === 'read' || kind === 'receive'
+                ? ('start' as const)
+                : ('end' as const),
+          }
+        : {}),
       ...(kind === 'notify'
         ? { taskId: tasks.find((t) => t.trigger === 'notification')?.id ?? '' }
         : kind !== 'placeholder'
@@ -581,6 +640,8 @@ export function useEditor() {
         kind,
         structs.find((data) => data.id === s.structId),
       );
+    if (s.placement && s.localName && task)
+      s.localName = connectorLocal(task.id, s.localName);
     updateTask((t) => t[phase].push(s));
     setStepSelection({ phase, id });
   }
@@ -601,11 +662,18 @@ export function useEditor() {
             s.kind,
             structs.find((data) => data.id === s.structId),
           );
+        if (
+          s.placement &&
+          s.localName &&
+          (s.structId !== before.structId || s.kind !== before.kind)
+        )
+          s.localName = connectorLocal(t.id, s.localName, s.id);
         const after = { ...s };
         delete after.requiresCode;
         if (
           importedNode(project, t.id) &&
           !importedStep(project, t.id, s.id) &&
+          !s.placement &&
           JSON.stringify(before) !== JSON.stringify(after)
         )
           s.requiresCode = true;
@@ -614,6 +682,22 @@ export function useEditor() {
   }
   function moveStep(phase: Phase, id: string, offset: number) {
     updateTask((t) => {
+      const selected = t[phase].find((s) => s.id === id);
+      if (selected?.placement && importedNode(project, t.id)) {
+        const group = t[phase].filter(
+          (s) =>
+            s.placement === selected.placement &&
+            !importedStep(project, t.id, s.id),
+        );
+        const from = group.findIndex((s) => s.id === id),
+          to = from + offset;
+        if (to >= 0 && to < group.length) {
+          const a = t[phase].indexOf(group[from]),
+            b = t[phase].indexOf(group[to]);
+          [t[phase][a], t[phase][b]] = [t[phase][b], t[phase][a]];
+        }
+        return;
+      }
       const list = t[phase],
         i = list.findIndex((s) => s.id === id),
         j = i + offset;
@@ -623,6 +707,17 @@ export function useEditor() {
   }
   function reorder(phase: Phase, from: string, to: string) {
     updateTask((t) => {
+      if (importedNode(project, t.id)) {
+        const a = t[phase].find((s) => s.id === from),
+          b = t[phase].find((s) => s.id === to);
+        if (
+          !a?.placement ||
+          a.placement !== b?.placement ||
+          importedStep(project, t.id, from) ||
+          importedStep(project, t.id, to)
+        )
+          return;
+      }
       const list = t[phase],
         i = list.findIndex((s) => s.id === from),
         j = list.findIndex((s) => s.id === to);
@@ -657,14 +752,17 @@ export function useEditor() {
         );
         if (step) {
           step.taskId = target.id;
-          if (importedNode(project, source.id)) step.requiresCode = true;
+          if (importedNode(project, source.id) && !step.placement)
+            step.requiresCode = true;
         } else
           n.loop.push({
             id: uid(),
             kind: 'notify',
             name: `Notify ${target.name}`,
             note: '',
-            ...(importedNode(project, source.id) ? { requiresCode: true } : {}),
+            ...(importedNode(project, source.id)
+              ? { placement: 'end' as const }
+              : {}),
             taskId: target.id,
           });
       });
@@ -699,8 +797,9 @@ export function useEditor() {
               step.kind = kind;
               delete step.taskId;
               step.structId = s.id;
-              step.localName = s.symbol;
-              if (importedNode(project, t.id)) step.requiresCode = true;
+              step.localName = connectorLocal(t.id, s.symbol, step.id);
+              if (importedNode(project, t.id) && !step.placement)
+                step.requiresCode = true;
             }
           }
       });
@@ -721,8 +820,15 @@ export function useEditor() {
       name: `${kind === 'write' ? 'Publish' : kind === 'send' ? 'Send' : kind === 'receive' ? 'Receive' : 'Read'} ${s.name.toLowerCase()}`,
       note: '',
       structId: s.id,
-      localName: s.symbol,
-      ...(importedNode(project, t.id) ? { requiresCode: true } : {}),
+      localName: connectorLocal(t.id, s.symbol),
+      ...(importedNode(project, t.id)
+        ? {
+            placement:
+              kind === 'read' || kind === 'receive'
+                ? ('start' as const)
+                : ('end' as const),
+          }
+        : {}),
       ...(kind === 'send' || kind === 'receive'
         ? { timeoutMs: 0, onFailure: 'return' as const }
         : {}),
@@ -929,6 +1035,7 @@ export function useEditor() {
   }
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      if (recovery || importPicker) return;
       const form = (e.target as HTMLElement)?.closest(
         'input,textarea,select,[contenteditable=true]',
       );
@@ -968,6 +1075,10 @@ export function useEditor() {
         Object.keys(preview?.files ?? {})[0]);
 
   return {
+    importPicker,
+    setImportPicker,
+    recovery,
+    resolveRecovery,
     templates,
     templateFolder,
     templateErrors,

@@ -68,6 +68,10 @@ std::string base_code(const json &project, const std::string &key, const std::st
 bool contains_code(const std::string &text);
 std::string task_file_owner(const json &project, const std::string &name);
 void preserve_sources(const json &project, Files &files);
+bool placed_connection(const json &step);
+std::string connection_helper(const json &step);
+std::string imported_connection_header(const json &project, const json &task);
+std::string extend_imported_task(const json &project, const json &task, const std::string &source);
 std::string region_key(const std::string &kind, const std::string &id);
 json code_states(const json &project);
 void capture_import(json &project);

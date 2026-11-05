@@ -22,7 +22,9 @@ export function TaskSettings({
     <div className={`settings-fields ${compact ? 'compact' : ''}`}>
       {imported && (
         <p className="imported-notice">
-          <span className="imported-badge">Imported · Limited editing</span>
+          <span className="imported-badge">
+            Imported · Limited functionality
+          </span>
           <br />
           Code and existing flow are preserved. Names and config values remain
           editable; add new input/output connections as needed.

@@ -12,6 +12,7 @@ add_library(espresso_core STATIC
   src/protocol.cpp
   src/github_release.cpp
   src/imported.cpp
+  src/connections.cpp
   src/project.cpp
   src/libraries.cpp
   src/features.cpp
