@@ -55,7 +55,7 @@ try {
       .getByRole('combobox', { name: 'App theme', exact: true })
       .selectOption(id);
     await expect(page.locator('html')).toHaveAttribute('data-theme', id);
-    await expect.poll(() => preferences().selected).toBe(id);
+    await expect(() => expect(preferences().selected).toBe(id)).toPass();
     assert.equal(
       await app.evaluate(({ nativeTheme }) => nativeTheme.shouldUseDarkColors),
       dark,
@@ -119,7 +119,9 @@ try {
   );
   await page.getByRole('button', { name: 'Save theme', exact: true }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  await expect.poll(() => preferences().customThemes[0]?.name).toBe('Forest');
+  await expect(() =>
+    expect(preferences().customThemes[0]?.name).toBe('Forest'),
+  ).toPass();
   const saved = preferences();
   assert.equal(saved.customThemes[0].palette.background, '#17251e');
   assert.equal(await page.locator('.project-label').textContent(), label);
@@ -170,8 +172,10 @@ try {
     .getByRole('button', { name: 'Customise theme', exact: true })
     .click();
   await page.getByRole('button', { name: 'Delete theme', exact: true }).click();
-  await expect.poll(() => preferences().selected).toBe('latte');
-  await expect.poll(() => preferences().customThemes.length).toBe(0);
+  await expect(() => expect(preferences().selected).toBe('latte')).toPass();
+  await expect(() =>
+    expect(preferences().customThemes.length).toBe(0),
+  ).toPass();
   await app.evaluate(({ BrowserWindow }) =>
     BrowserWindow.getAllWindows()[0].setSize(1050, 720),
   );
