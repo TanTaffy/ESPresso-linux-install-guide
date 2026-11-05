@@ -24,11 +24,8 @@ async function pageFor(app) {
   const page = await app.firstWindow();
   page.on('pageerror', (e) => errors.push(e.message));
   page.setDefaultTimeout(15000);
-  await page
-    .getByRole('dialog')
-    .filter({ hasText: 'Start your program' })
-    .getByRole('button', { name: 'Close', exact: true })
-    .click();
+  await expect(page.locator('.project-label')).toHaveText('New layout');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   await page
     .getByRole('combobox', { name: 'App theme', exact: true })
     .waitFor();

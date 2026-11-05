@@ -77,12 +77,18 @@ const page = await app.firstWindow(),
   errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 try {
-  const setup = page
-    .getByRole('dialog')
-    .filter({ hasText: 'Start your program' });
+  await expect(page.locator('.project-label')).toHaveText('New layout');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page
+    .getByRole('button', { name: 'Project settings', exact: true })
+    .click();
+  const setup = page.getByRole('dialog', {
+    name: 'Project settings',
+    exact: true,
+  });
   await setup.getByLabel('Project name', { exact: true }).fill('before-import');
   await setup
-    .getByRole('button', { name: 'Create program', exact: true })
+    .getByRole('button', { name: 'Apply settings', exact: true })
     .click();
   await page
     .getByRole('button', { name: 'Task Drag onto canvas', exact: true })

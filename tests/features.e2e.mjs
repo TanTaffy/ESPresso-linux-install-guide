@@ -29,11 +29,8 @@ const tab = (name) =>
 const shot = (name) =>
   page.screenshot({ path: path.resolve('test-results', name), fullPage: true });
 try {
-  await page
-    .getByRole('dialog')
-    .filter({ hasText: 'Start your program' })
-    .getByRole('button', { name: 'Close', exact: true })
-    .click();
+  await expect(page.locator('.project-label')).toHaveText('New layout');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   await app.evaluate(async () => {
     const cp = process.getBuiltinModule('node:child_process');
     const { EventEmitter } = process.getBuiltinModule('node:events');
@@ -266,12 +263,8 @@ try {
   await page
     .getByRole('button', { name: 'Start new layout', exact: true })
     .click();
-  await page
-    .getByRole('dialog')
-    .filter({ hasText: 'Start your program' })
-    .getByRole('button', { name: 'Close', exact: true })
-    .click();
   await expect(page.locator('.project-label')).toHaveText('New layout');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.locator('.palette-button')).toHaveCount(4);
   await page
     .getByRole('button', {

@@ -48,15 +48,21 @@ try {
       return spawn(file, args, options);
     };
   });
-  const setup = page
-    .getByRole('dialog')
-    .filter({ hasText: 'Start your program' });
+  await expect(page.locator('.project-label')).toHaveText('New layout');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page
+    .getByRole('button', { name: 'Project settings', exact: true })
+    .click();
+  const setup = page.getByRole('dialog', {
+    name: 'Project settings',
+    exact: true,
+  });
   await setup.getByLabel('Project name', { exact: true }).fill('pressure-flow');
   await setup
     .getByLabel('ESP32 target', { exact: true })
     .selectOption('esp32s3');
   await setup
-    .getByRole('button', { name: 'Create program', exact: true })
+    .getByRole('button', { name: 'Apply settings', exact: true })
     .click();
   await page
     .getByRole('button', { name: 'Task Drag onto canvas', exact: true })
@@ -236,6 +242,17 @@ try {
   await tab('Canvas');
   fs.mkdirSync('test-results', { recursive: true });
   await page.screenshot({ path: 'test-results/first-program-flow.png' });
+  await page.getByRole('button', { name: 'New layout', exact: true }).click();
+  await page
+    .getByRole('button', { name: 'Continue without saving', exact: true })
+    .click();
+  await expect(page.locator('.project-label')).toHaveText('New layout');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.locator('.react-flow__node')).toHaveCount(0);
+  await page
+    .getByRole('button', { name: 'Task Drag onto canvas', exact: true })
+    .click();
+  await expect(page.locator('.task-node')).toHaveCount(1);
   assert.deepEqual(errors, []);
   console.log(
     JSON.stringify({

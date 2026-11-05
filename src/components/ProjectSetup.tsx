@@ -22,6 +22,7 @@ export function ProjectSetup({
     <dialog
       ref={dialog}
       className="modal project-setup"
+      aria-labelledby="project-settings-title"
       onCancel={onClose}
       onClose={onClose}
     >
@@ -31,11 +32,8 @@ export function ProjectSetup({
           onApply(name.trim(), target);
         }}
       >
-        <h2>{fresh ? 'Start your program' : 'Project settings'}</h2>
-        <p>
-          Choose a name and board. Add tasks next, then connect the data they
-          share.
-        </p>
+        <h2 id="project-settings-title">Project settings</h2>
+        <p>Set the project name and target board.</p>
         <FieldLabel
           label="Project name"
           hint="Used for the saved layout and exported folder."
@@ -65,10 +63,10 @@ export function ProjectSetup({
         </FieldLabel>
         <div className="actions">
           <button type="button" className="button" onClick={onClose}>
-            {fresh ? 'Close' : 'Cancel'}
+            Cancel
           </button>
           <button className="button primary" type="submit">
-            {fresh ? 'Create program' : 'Apply settings'}
+            Apply settings
           </button>
         </div>
       </form>

@@ -35,12 +35,8 @@ try {
   await page
     .getByRole('button', { name: 'Start new layout', exact: true })
     .click();
-  await page
-    .getByRole('dialog')
-    .filter({ hasText: 'Start your program' })
-    .getByRole('button', { name: 'Close', exact: true })
-    .click();
   await expect(page.locator('.project-label')).toHaveText('New layout');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.locator('.react-flow__node')).toHaveCount(0);
   await expect(page.locator('.brand img, .sidebar-logo')).toHaveCount(0);
   await expect(page.locator('.brand-name')).toHaveText('ESPresso');

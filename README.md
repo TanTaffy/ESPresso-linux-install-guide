@@ -2,6 +2,8 @@
 
 A Windows app for designing FreeRTOS tasks and exporting ESP-IDF C++ skeletons.
 
+ESPresso opens directly on the canvas. Click the project name in the header to change its name or board in **Project settings**.
+
 [Download the latest Windows app](https://github.com/Trovix/ESPresso/releases/latest) — portable executable and SHA-256 checksum.
 
 ## Build a program

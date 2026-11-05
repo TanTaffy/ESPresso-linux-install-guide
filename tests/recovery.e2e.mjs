@@ -45,14 +45,20 @@ const recoveryDialog = () =>
   page.getByRole('dialog', { name: 'Recover previous session?' });
 try {
   await launch();
-  const setup = page
-    .getByRole('dialog')
-    .filter({ hasText: 'Start your program' });
+  await expect(page.locator('.project-label')).toHaveText('New layout');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page
+    .getByRole('button', { name: 'Project settings', exact: true })
+    .click();
+  const setup = page.getByRole('dialog', {
+    name: 'Project settings',
+    exact: true,
+  });
   await setup
     .getByLabel('Project name', { exact: true })
     .fill('recovery-check');
   await setup
-    .getByRole('button', { name: 'Create program', exact: true })
+    .getByRole('button', { name: 'Apply settings', exact: true })
     .click();
   await page
     .getByRole('button', { name: 'Task Drag onto canvas', exact: true })
@@ -171,16 +177,14 @@ try {
   await recoveryDialog()
     .getByRole('button', { name: 'Start new layout', exact: true })
     .click();
-  await expect(
-    page.getByRole('dialog').filter({ hasText: 'Start your program' }),
-  ).toBeVisible();
+  await expect(page.locator('.project-label')).toHaveText('New layout');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.locator('.task-node')).toHaveCount(0);
   assert.equal(fs.existsSync(recoveryPath), false);
   await stop();
   await launch();
-  await expect(
-    page.getByRole('dialog').filter({ hasText: 'Start your program' }),
-  ).toBeVisible();
+  await expect(page.locator('.project-label')).toHaveText('New layout');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(recoveryDialog()).toHaveCount(0);
   await stop();
 
@@ -188,10 +192,8 @@ try {
   const corrupt = '{ unfinished recovery file';
   fs.writeFileSync(recoveryPath, corrupt);
   await launch();
-  await expect(
-    page.getByRole('dialog').filter({ hasText: 'Start your program' }),
-  ).toBeVisible();
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(page.locator('.project-label')).toHaveText('New layout');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.getByRole('alert')).toContainText(
     'Could not recover the previous session',
   );

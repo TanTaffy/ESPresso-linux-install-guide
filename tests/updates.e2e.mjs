@@ -42,16 +42,8 @@ try {
     name: 'A new version is available',
     exact: true,
   });
-  const setup = page
-    .getByRole('dialog')
-    .filter({ hasText: 'Start your program' });
-  await expect(setup).toBeVisible();
+  await expect(page.locator('.project-label')).toHaveText('New layout');
   await expect.poll(() => app.evaluate(() => globalThis.updateChecks)).toBe(1);
-  await expect(prompt).toHaveCount(0);
-  await setup.getByLabel('Project name', { exact: true }).fill('update-check');
-  await setup
-    .getByRole('button', { name: 'Create program', exact: true })
-    .click();
   await expect(prompt).toContainText('ESPresso 9.0.0');
   await expect(
     prompt.getByRole('button', { name: 'Not now', exact: true }),

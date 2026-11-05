@@ -153,7 +153,6 @@ export function useEditor() {
         if (!alive) return;
         setProject(result.project);
         setRecovery(result.recovery ?? null);
-        setProjectSetup(!result.recovery && !result.project.nodes.length);
         setSelectedId(
           result.project.nodes.find((n) => n.kind === 'task')?.id ?? null,
         );
@@ -296,8 +295,6 @@ export function useEditor() {
         fitPending.current = true;
         setFitRevision((value) => value + 1);
         notify('Previous session recovered. Save your layout to keep it.');
-      } else {
-        setProjectSetup(true);
       }
       setRecovery(null);
     });
@@ -335,7 +332,7 @@ export function useEditor() {
             : await window.espresso.example();
         await window.espresso.newDocument(p);
         setProject(p);
-        setProjectSetup(action === 'new');
+        setProjectSetup(false);
         setSavedPath(null);
         setSelectedId(p.nodes[0]?.id ?? null);
         notify(action === 'new' ? 'New layout' : 'Pressure example loaded');
