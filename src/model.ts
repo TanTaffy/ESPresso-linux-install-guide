@@ -160,6 +160,7 @@ export type ExportResult = {
   fileCount: number;
 } | null;
 export type DeveloperTools = {
+  platform: string;
   idfPath: string | null;
   editorPath: string | null;
 };

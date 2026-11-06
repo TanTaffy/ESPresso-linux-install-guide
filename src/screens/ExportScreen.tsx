@@ -12,6 +12,7 @@ import { useEffect, useState } from 'react';
 import { FieldLabel } from '../components/FieldLabel';
 import type { EditorController } from '../editor/useEditor';
 import type { Project, DeveloperTools } from '../model';
+import { buildCommands as commandsFor } from '../build-commands';
 
 type Props = Pick<
   EditorController,
@@ -96,16 +97,7 @@ export function ExportScreen({
             .map((step) => ({ task, phase, step })),
         ),
   );
-  const buildCommands = [
-    ...(tools?.idfPath
-      ? [`. '${tools.idfPath.replaceAll("'", "''")}\\export.ps1'`]
-      : []),
-    ...(exportPath
-      ? [`Set-Location -LiteralPath '${exportPath.replaceAll("'", "''")}'`]
-      : []),
-    `idf.py set-target ${project.target}`,
-    'idf.py build',
-  ].join('\n');
+  const buildCommands = commandsFor(project.target, exportPath, tools);
   return (
     <>
       <div className="page-heading">
@@ -279,9 +271,10 @@ export function ExportScreen({
           <p className="info-note">
             {tools?.idfPath
               ? `ESP-IDF found: ${tools.idfPath}.`
-              : 'ESP-IDF was not found in the environment or the standard Espressif frameworks folder. Install ESP-IDF, then open its terminal.'}{' '}
+              : 'ESP-IDF was not found. Install ESP-IDF, then open its terminal.'}{' '}
             SDK detection does not check toolchain activation. Run these
-            commands in PowerShell
+            commands in{' '}
+            {tools?.platform === 'win32' ? 'PowerShell' : 'Bash or Zsh'}
             {tools?.idfPath ? '' : ' after activating ESP-IDF'}:
           </p>
           <div className="build-commands">
