@@ -1,6 +1,16 @@
 # Keep the portable Windows executable self-contained. macOS/Linux use their
 # installed libcurl development package and its TLS/certificate configuration.
 if(NOT WIN32)
+  if(APPLE)
+    # Link the SDK stub for the OS-provided libcurl, never a Homebrew dylib
+    # that would be missing on another user's Mac.
+    execute_process(COMMAND xcrun --show-sdk-path
+      OUTPUT_VARIABLE espresso_sdk OUTPUT_STRIP_TRAILING_WHITESPACE
+      COMMAND_ERROR_IS_FATAL ANY)
+    set(CURL_NO_CURL_CMAKE TRUE)
+    set(CURL_LIBRARY "${espresso_sdk}/usr/lib/libcurl.tbd")
+    set(CURL_INCLUDE_DIR "${espresso_sdk}/usr/include")
+  endif()
   find_package(CURL 7.85 REQUIRED)
   return()
 endif()
