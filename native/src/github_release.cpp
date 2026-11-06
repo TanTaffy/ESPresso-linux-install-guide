@@ -1,39 +1,11 @@
-#define NOMINMAX
 #include "espresso/github_release.hpp"
 #include "espresso/core.hpp"
 #include <regex>
 #include <stdexcept>
-#include <windows.h>
-#include <winhttp.h>
+#include <icarus/http_client.hpp>
 
 namespace github_release
 {
-class InternetHandle
-{
-    HINTERNET value_;
-
-  public:
-    explicit InternetHandle(HINTERNET value) : value_(value)
-    {
-        if (!value_)
-            throw std::runtime_error("Could not open the HTTPS connection for library.");
-    }
-    ~InternetHandle() { WinHttpCloseHandle(value_); }
-    operator HINTERNET() const { return value_; }
-    InternetHandle(const InternetHandle &) = delete;
-    InternetHandle &operator=(const InternetHandle &) = delete;
-};
-inline std::wstring wide(const std::string &text)
-{
-    const int size = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(),
-                                         static_cast<int>(text.size()), nullptr, 0);
-    if (!size)
-        throw std::runtime_error("Invalid UTF-8 in the library release reference.");
-    std::wstring result(size, L'\0');
-    MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(), static_cast<int>(text.size()),
-                        result.data(), size);
-    return result;
-}
 inline std::string encode(const std::string &text, bool keep_slashes = false)
 {
     static const char hex[] = "0123456789ABCDEF";
@@ -52,27 +24,29 @@ inline std::string encode(const std::string &text, bool keep_slashes = false)
     }
     return result;
 }
-inline std::string get(const wchar_t *host, const std::string &resource)
+inline std::string get(const std::string &host, const std::string &resource)
 {
-    InternetHandle session(WinHttpOpen(L"ESPresso/0.2.0", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
-                                       WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0));
-    WinHttpSetTimeouts(session, 8000, 8000, 8000, 15000);
-    InternetHandle connection(WinHttpConnect(session, host, INTERNET_DEFAULT_HTTPS_PORT, 0));
-    const auto uri = wide(resource);
-    InternetHandle request(WinHttpOpenRequest(connection, L"GET", uri.c_str(), nullptr,
-                                              WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES,
-                                              WINHTTP_FLAG_SECURE));
-    const wchar_t headers[] = L"Accept: application/vnd.github+json\r\nX-GitHub-Api-Version: "
-                              L"2022-11-28\r\nCache-Control: no-cache\r\n";
-    if (!WinHttpSendRequest(request, headers, static_cast<DWORD>(-1), WINHTTP_NO_REQUEST_DATA, 0, 0,
-                            0) ||
-        !WinHttpReceiveResponse(request, nullptr))
+    icarus::connectors::HttpResponse response;
+    try
+    {
+        response = icarus::connectors::HttpClient{}.get(
+            "https://" + host + resource,
+            {{"Accept", "application/vnd.github+json"},
+             {"User-Agent", "ESPresso"},
+             {"X-GitHub-Api-Version", "2022-11-28"},
+             {"Cache-Control", "no-cache"}});
+    }
+    catch (const icarus::connectors::ResponseTooLarge &)
+    {
+        throw std::runtime_error("A library source download exceeds the 2 MB limit.");
+    }
+    catch (const std::exception &error)
+    {
         throw std::runtime_error("Could not download the latest library release. Check your "
-                                 "internet connection and try exporting again.");
-    DWORD status = 0, size = sizeof(status);
-    if (!WinHttpQueryHeaders(request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
-                             WINHTTP_HEADER_NAME_BY_INDEX, &status, &size, WINHTTP_NO_HEADER_INDEX))
-        throw std::runtime_error("Could not read the library release download response.");
+                                 "internet connection and try exporting again. " +
+                                 std::string(error.what()));
+    }
+    const auto status = response.status_code;
     if (status != 200)
     {
         if (status == 404)
@@ -85,45 +59,26 @@ inline std::string get(const wchar_t *host, const std::string &resource)
         throw std::runtime_error("Library download failed with GitHub HTTP " +
                                  std::to_string(status) + ". No project was exported.");
     }
-    std::string body;
-    for (;;)
-    {
-        DWORD available = 0;
-        if (!WinHttpQueryDataAvailable(request, &available))
-            throw std::runtime_error("Library download was interrupted.");
-        if (!available)
-            break;
-        if (body.size() + available > 2 * 1024 * 1024)
-            throw std::runtime_error("A library source download exceeds the 2 MB limit.");
-        const size_t start = body.size();
-        body.resize(start + available);
-        DWORD received = 0;
-        if (!WinHttpReadData(request, body.data() + start, available, &received))
-            throw std::runtime_error("Library download was interrupted.");
-        body.resize(start + received);
-        if (!received)
-            break;
-    }
-    if (body.find('\0') != std::string::npos)
+    if (response.body.find('\0') != std::string::npos)
         throw std::runtime_error("GitHub returned a binary file instead of library source.");
-    return body;
+    return std::move(response.body);
 }
 Download fetch_library(const json &library)
 {
     const std::string repository = library.at("repository"), selection = library.at("version");
     const std::string repo = "/repos/" + repository;
     const auto release = json::parse(get(
-        L"api.github.com", repo + (selection == "latest" ? "/releases/latest"
+        "api.github.com", repo + (selection == "latest" ? "/releases/latest"
                                                          : "/releases/tags/" + encode(selection))));
     const std::string tag = release.at("tag_name");
     if (tag.empty() || release.value("draft", true) || release.value("prerelease", true))
         throw std::runtime_error("No stable published release is available for " + repository);
-    const auto commit = json::parse(get(L"api.github.com", repo + "/commits/" + encode(tag)));
+    const auto commit = json::parse(get("api.github.com", repo + "/commits/" + encode(tag)));
     const std::string sha = commit.at("sha");
     if (!std::regex_match(sha, std::regex("[0-9a-f]{40}")))
         throw std::runtime_error("Invalid release commit.");
     const auto tree =
-        json::parse(get(L"api.github.com", repo + "/git/trees/" + sha + "?recursive=1"));
+        json::parse(get("api.github.com", repo + "/git/trees/" + sha + "?recursive=1"));
     if (tree.value("truncated", false))
         throw std::runtime_error("Library release file tree is too large.");
     json local = library;
@@ -145,7 +100,7 @@ Download fetch_library(const json &library)
         const std::string destination = path;
         if (!espresso::safe_relative(destination) || local["files"].contains(destination))
             throw std::runtime_error("Unsafe or ambiguous library source path.");
-        auto source = get(L"raw.githubusercontent.com",
+        auto source = get("raw.githubusercontent.com",
                           "/" + repository + "/" + sha + "/" + encode(path, true));
         total += source.size();
         if (total > 2 * 1024 * 1024 || paths.size() >= 300)
