@@ -51,6 +51,14 @@ try {
       .selectOption(id);
     await expect(page.locator('html')).toHaveAttribute('data-theme', id);
     await expect(() => expect(preferences().selected).toBe(id)).toPass();
+    // React Flow draws edges after measuring its nodes. Wait for the actual
+    // graph before reading styles, including on fast native macOS runners.
+    for (const selector of [
+      '.graph-node',
+      '.react-flow__edge-path',
+      '.react-flow__controls-button',
+    ])
+      await expect(page.locator(selector).first()).toBeVisible();
     assert.equal(
       await app.evaluate(({ nativeTheme }) => nativeTheme.shouldUseDarkColors),
       dark,
