@@ -1,18 +1,17 @@
+import { buildExecutable } from '../scripts/native-paths.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { createServer } from 'node:http';
-import path from 'node:path';
 import { promisify } from 'node:util';
 
 const exec = promisify(execFile);
-const name = `espresso-http-check${process.platform === 'win32' ? '.exe' : ''}`;
-const executable = [
-  path.resolve('build/native/Release', name),
-  path.resolve('build/native', name),
-].find(existsSync);
-assert.ok(executable, 'Build the native backend with BUILD_TESTING=ON first.');
+const executable = buildExecutable('build/native', 'espresso-http-check');
+assert.ok(
+  existsSync(executable),
+  'Build the native backend with BUILD_TESTING=ON first.',
+);
 
 async function get(request) {
   const child = exec(executable, [], {

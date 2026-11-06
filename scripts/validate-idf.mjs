@@ -1,12 +1,13 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { nativeExecutable } from './native-paths.mjs';
 const idfPath = process.env.IDF_PATH;
 if (!idfPath || !fs.existsSync(path.join(idfPath, 'tools/idf.py')))
   throw new Error(
-    'Activate ESP-IDF first (run its export.ps1), then run npm run test:idf.',
+    'Activate ESP-IDF first (export.ps1 on Windows, export.sh on macOS/Linux), then run npm run test:idf.',
   );
-const core = path.resolve('build/native/Release/espresso-core.exe');
+const core = nativeExecutable();
 const request = (value) => {
   const r = JSON.parse(
     execFileSync(core, [], {

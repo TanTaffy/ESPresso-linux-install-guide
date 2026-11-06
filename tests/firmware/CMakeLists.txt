@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 project(espresso_generated_checks LANGUAGES CXX)
+include("${CMAKE_CURRENT_LIST_DIR}/../../native/cmake/BuildSettings.cmake")
 file(TO_CMAKE_PATH "${FIRMWARE}" FIRMWARE)
 file(GLOB_RECURSE firmware_sources "${FIRMWARE}/main/*.cpp")
 add_executable(firmware-check harness.cpp ${firmware_sources})

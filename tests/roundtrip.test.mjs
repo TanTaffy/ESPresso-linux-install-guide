@@ -1,3 +1,5 @@
+import { cmakeExecutable } from '../scripts/cmake.mjs';
+import { nativeExecutable } from '../scripts/native-paths.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -7,7 +9,7 @@ import path from 'node:path';
 
 const call = (value) =>
   JSON.parse(
-    execFileSync('build/native/Release/espresso-core.exe', [], {
+    execFileSync(nativeExecutable(), [], {
       input: JSON.stringify(value),
       encoding: 'utf8',
       windowsHide: true,
@@ -746,10 +748,7 @@ test('whole source bytes survive reimport while new tasks and queues update the 
     'cmake_minimum_required(VERSION 3.16)\nfunction(idf_component_register)\n    cmake_parse_arguments(COMP "" "" "SRCS;PRIV_REQUIRES;INCLUDE_DIRS" ${ARGN})\n    if(NOT "tasks/gps_task.cpp" IN_LIST COMP_SRCS OR NOT "shared/samples.cpp" IN_LIST COMP_SRCS)\n        message(FATAL_ERROR "Missing generated source registration")\n    endif()\nendfunction()\n' +
       `include("${path.join(second, 'main/CMakeLists.txt').replaceAll('\\', '/')}")\n`,
   );
-  const cmake = fs
-    .readFileSync('build/native/CMakeCache.txt', 'utf8')
-    .match(/^CMAKE_COMMAND:INTERNAL=(.+)$/m)[1]
-    .trim();
+  const cmake = cmakeExecutable();
   execFileSync(cmake, ['-P', script], {
     cwd: checkDir,
     windowsHide: true,

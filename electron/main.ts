@@ -26,6 +26,10 @@ import type {
   Catalog,
 } from '../src/model';
 import { createNativeClient } from './native-client';
+import {
+  nativeExecutable,
+  packagedNativeExecutable,
+} from '../scripts/native-paths.mjs';
 import { openFolder } from './open-folder';
 import { developerTools, openInEditor } from './developer-tools';
 import { checkForUpdate } from './updates';
@@ -46,8 +50,8 @@ if (process.env.ESPRESSO_TEST_DATA)
   app.setPath('userData', process.env.ESPRESSO_TEST_DATA);
 const core = () =>
   app.isPackaged
-    ? path.join(process.resourcesPath, 'core/espresso-core.exe')
-    : path.resolve(__dirname, '../build/native/Release/espresso-core.exe');
+    ? packagedNativeExecutable(process.resourcesPath)
+    : nativeExecutable(path.resolve(__dirname, '..'));
 const autosave = () =>
   path.join(app.getPath('userData'), 'recovery.espresso.json');
 const native = createNativeClient(core);

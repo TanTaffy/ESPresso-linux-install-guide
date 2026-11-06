@@ -13,7 +13,7 @@
     "build": "npm run native && npm run build:ui",
     "start": "node scripts/launch.mjs",
     "dev": "npm run build && npm start",
-    "test": "npm run native && node --test tests/backend.test.mjs tests/firmware.test.mjs tests/roundtrip.test.mjs tests/runtime-config.test.mjs tests/imported.test.mjs tests/skeleton.test.mjs tests/editor.test.mjs tests/updates.test.mjs tests/http.test.mjs",
+    "test": "npm run native && node --test tests/backend.test.mjs tests/firmware.test.mjs tests/roundtrip.test.mjs tests/runtime-config.test.mjs tests/imported.test.mjs tests/skeleton.test.mjs tests/editor.test.mjs tests/updates.test.mjs tests/http.test.mjs tests/native-paths.test.mjs",
     "test:e2e": "node tests/flow.e2e.mjs && node tests/desktop.e2e.mjs && node tests/project.e2e.mjs && node tests/features.e2e.mjs && node tests/themes.e2e.mjs && node tests/recovery.e2e.mjs && node tests/updates.e2e.mjs",
     "test:idf": "npm run native && node scripts/validate-idf.mjs",
     "package": "npm run build && node scripts/package.mjs",
@@ -54,8 +54,12 @@
     ],
     "extraResources": [
       {
-        "from": "build/native/Release/espresso-core.exe",
-        "to": "core/espresso-core.exe"
+        "from": "build/native/bin/Release",
+        "to": "core",
+        "filter": [
+          "espresso-core",
+          "espresso-core.exe"
+        ]
       },
       {
         "from": "native/third_party/nlohmann/LICENSE.MIT",

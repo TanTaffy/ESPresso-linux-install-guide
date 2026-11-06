@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 project(espresso_core LANGUAGES CXX)
 
+include(cmake/BuildSettings.cmake)
 include(cmake/Curl.cmake)
 
 add_library(icarus_http STATIC third_party/icarus/http_client.cpp)

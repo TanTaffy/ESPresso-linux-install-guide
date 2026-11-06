@@ -1,3 +1,9 @@
+import {
+  cmakeExecutable,
+  configureArgs,
+  buildArgs,
+} from '../scripts/cmake.mjs';
+import { nativeExecutable, buildExecutable } from '../scripts/native-paths.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -227,7 +233,7 @@ test('exported firmware compiles and handles FIFO, full queues, events and notif
     ).toString('base64'),
   };
   const result = JSON.parse(
-    execFileSync('build/native/Release/espresso-core.exe', [], {
+    execFileSync(nativeExecutable(), [], {
       input: JSON.stringify({ op: 'export', project, path: root }),
       encoding: 'utf8',
       windowsHide: true,
@@ -252,9 +258,7 @@ test('exported firmware compiles and handles FIFO, full queues, events and notif
         'unsigned LOOP_SEND_TIMEOUT_MS = 50',
       ),
   );
-  const cache = fs.readFileSync('build/native/CMakeCache.txt', 'utf8');
-  const cmake =
-    cache.match(/^CMAKE_COMMAND:INTERNAL=(.*)$/m)?.[1].trim() ?? 'cmake';
+  const cmake = cmakeExecutable();
   const build = path.join(root, 'build');
   const run = (args) => {
     try {
@@ -263,23 +267,12 @@ test('exported firmware compiles and handles FIFO, full queues, events and notif
       throw new Error(`${error.message}\n${error.stdout}\n${error.stderr}`);
     }
   };
-  run([
-    '-S',
-    path.resolve('tests/firmware'),
-    '-B',
-    build,
-    '-DFIRMWARE=' + result.result.path,
-    '-G',
-    'Visual Studio 17 2022',
-    '-A',
-    'x64',
-  ]);
-  run(['--build', build, '--config', 'Release']);
-  const output = execFileSync(
-    path.join(build, 'Release/firmware-check.exe'),
-    [],
-    { encoding: 'utf8', windowsHide: true },
-  );
+  run(configureArgs('tests/firmware', build, { FIRMWARE: result.result.path }));
+  run(buildArgs(build));
+  const output = execFileSync(buildExecutable(build, 'firmware-check'), [], {
+    encoding: 'utf8',
+    windowsHide: true,
+  });
   assert.match(output, /counting notifications passed/);
   // Real C++ compilation must reject unsafe library payloads, not just flag them in UI.
   fs.writeFileSync(
@@ -287,7 +280,7 @@ test('exported firmware compiles and handles FIFO, full queues, events and notif
     '#pragma once\nnamespace Sensor { struct Sample { int raw[2] = {}; ~Sample() {} }; }\n',
   );
   assert.throws(
-    () => run(['--build', build, '--config', 'Release', '--clean-first']),
+    () => run(buildArgs(build, ['--clean-first'])),
     /Payloads must be trivially copyable/,
   );
 });

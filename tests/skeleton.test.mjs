@@ -1,3 +1,4 @@
+import { nativeExecutable } from '../scripts/native-paths.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -24,7 +25,7 @@ const puns = new Set([
 ]);
 const call = (request) =>
   JSON.parse(
-    execFileSync('build/native/Release/espresso-core.exe', [], {
+    execFileSync(nativeExecutable(), [], {
       input: JSON.stringify(request),
       encoding: 'utf8',
       windowsHide: true,

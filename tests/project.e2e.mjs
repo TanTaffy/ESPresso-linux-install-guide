@@ -1,3 +1,4 @@
+import { nativeExecutable } from '../scripts/native-paths.mjs';
 import { _electron as electron, expect } from '@playwright/test';
 import electronBinary from 'electron';
 import { execFileSync } from 'node:child_process';
@@ -8,7 +9,7 @@ import assert from 'node:assert/strict';
 const data = fs.mkdtempSync(path.join(os.tmpdir(), 'espresso-import-ui-'));
 const request = (value) => {
   const response = JSON.parse(
-    execFileSync('build/native/Release/espresso-core.exe', [], {
+    execFileSync(nativeExecutable(), [], {
       input: JSON.stringify(value),
       encoding: 'utf8',
       windowsHide: true,
