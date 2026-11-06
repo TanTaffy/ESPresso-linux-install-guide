@@ -382,6 +382,45 @@ test('export creates a complete project and never overwrites an existing directo
   assert.equal(request({ op: 'export', project: p, path: dir }).ok, false);
 });
 
+test('Unicode folders survive save, replacement, export and project import', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'espresso-unicode-'));
+  const folder = path.join(root, 'café 空間 ☕');
+  fs.mkdirSync(folder);
+  const filename = path.join(folder, 'résumé-配置.espresso.json');
+  const project = withoutCan(example());
+  for (const name of ['first-save', 'replaced-save']) {
+    project.name = name;
+    assert.equal(request({ op: 'save', path: filename, project }).ok, true);
+    assert.deepEqual(
+      request({ op: 'load', path: filename }).result.project,
+      project,
+    );
+    assert.deepEqual(fs.readdirSync(folder), [path.basename(filename)]);
+  }
+  const exported = request({ op: 'export', path: folder, project });
+  assert.equal(exported.ok, true, exported.error);
+  const imported = request({
+    op: 'import-project',
+    path: exported.result.path,
+  });
+  assert.equal(imported.ok, true, imported.error);
+  assert.equal(imported.result.project.name, project.name);
+});
+
+test('failed atomic replacement preserves the destination and removes the temporary file', () => {
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'espresso-atomic-'));
+  const destination = path.join(folder, '配置.espresso.json');
+  fs.mkdirSync(destination);
+  fs.writeFileSync(path.join(destination, 'keep.txt'), 'original');
+  const result = request({ op: 'save', path: destination, project: example() });
+  assert.equal(result.ok, false);
+  assert.equal(
+    fs.readFileSync(path.join(destination, 'keep.txt'), 'utf8'),
+    'original',
+  );
+  assert.deepEqual(fs.readdirSync(folder), [path.basename(destination)]);
+});
+
 test('the shipped CAN definition is an ordinary editable template with an ordinary library', () => {
   const template = JSON.parse(
     fs.readFileSync('defaults/task-templates/can.espresso-task.json', 'utf8'),
