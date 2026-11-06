@@ -34,7 +34,7 @@ The packaged app checks GitHub for a newer stable Windows release once on launch
 
 ## Run from source
 
-Requires Windows x64, Node.js 22.14+ and Visual Studio 2022 C++ Build Tools with CMake and a Windows SDK. The packaged app needs none of these.
+Requires Node.js 22.14+, CMake 3.20+ and a C++17 compiler. On Windows, install Visual Studio C++ Build Tools with CMake and a Windows SDK; on macOS, use Xcode Command Line Tools; on Linux, use GCC or Clang. macOS/Linux also need libcurl 7.85+ development files (`libcurl4-openssl-dev` on Ubuntu 24.04; the macOS SDK includes libcurl). The packaged Windows app needs none of these.
 
 The first Windows build downloads and statically links a pinned libcurl release using Windows certificate verification. Later builds reuse the source in `build/native/_deps`. GitHub library downloads use the HTTP client adapted from [Icarus](https://github.com/Trovix/icarus).
 
@@ -43,6 +43,8 @@ npm ci
 npm run build
 npm start
 ```
+
+CMake selects the host's default toolchain. For a fresh build, `CMAKE_GENERATOR` and `CXX` can select another generator or compiler; `CMAKE` can select the CMake executable. Existing build directories retain their cached toolchain. Executables use `build/native/bin/Release/espresso-core` (`.exe` on Windows), with the same layout for Visual Studio, Xcode, Ninja and Makefiles.
 
 ## Development checks
 
@@ -54,13 +56,13 @@ npm run format:check
 
 With ESP-IDF activated, `npm run test:idf` builds a fresh export using the real SDK. `npm run package` creates the portable Windows app.
 
-The native backend can also be built directly on macOS/Linux with a C++17 compiler, CMake 3.20+ and libcurl 7.85+ development files (`libcurl4-openssl-dev` on Ubuntu 24.04; the macOS SDK includes libcurl):
+The native backend can also be built directly:
 
 ```sh
 cmake -S native -B build/native -DCMAKE_BUILD_TYPE=Release
-cmake --build build/native
+cmake --build build/native --config Release
 ```
 
-The desktop launch scripts, packaging and full test suite still need the remaining portability work.
+macOS/Linux builds still need verification. Packaging, editor integration and desktop test coverage have remaining portability work.
 
 [MIT license](LICENSE). Independent project, not affiliated with or endorsed by Espressif Systems.

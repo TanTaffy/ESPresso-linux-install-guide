@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 project(espresso_imported_connectors LANGUAGES CXX)
+include("${CMAKE_CURRENT_LIST_DIR}/../../native/cmake/BuildSettings.cmake")
 file(TO_CMAKE_PATH "${FIRMWARE}" FIRMWARE)
 add_executable(imported-check harness.cpp "${FIRMWARE}/main/tasks/adc_task.cpp")
 target_compile_features(imported-check PRIVATE cxx_std_17)

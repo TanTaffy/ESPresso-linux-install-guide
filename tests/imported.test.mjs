@@ -1,3 +1,9 @@
+import {
+  cmakeExecutable,
+  configureArgs,
+  buildArgs,
+} from '../scripts/cmake.mjs';
+import { nativeExecutable, buildExecutable } from '../scripts/native-paths.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -6,7 +12,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 const call = (value) =>
   JSON.parse(
-    execFileSync('build/native/Release/espresso-core.exe', [], {
+    execFileSync(nativeExecutable(), [], {
       input: JSON.stringify(value),
       encoding: 'utf8',
       windowsHide: true,
@@ -635,9 +641,7 @@ test('extended imported C++ compiles and executes input/output, notification, ti
     path.join(os.tmpdir(), 'espresso-imported-runtime-'),
   );
   let output = request({ op: 'export', project: p, path: root }).path;
-  const cache = fs.readFileSync('build/native/CMakeCache.txt', 'utf8');
-  const cmake =
-    cache.match(/^CMAKE_COMMAND:INTERNAL=(.*)$/m)?.[1].trim() ?? 'cmake';
+  const cmake = cmakeExecutable();
   const build = path.join(root, 'build');
   const run = (args) => {
     try {
@@ -670,24 +674,17 @@ test('extended imported C++ compiles and executes input/output, notification, ti
       );
       assert.ok(extended.includes('if (!' + call + ') return;'));
     }
-    run([
-      '-S',
-      path.resolve('tests/imported-firmware'),
-      '-B',
-      build,
-      '-DFIRMWARE=' + output,
-      '-DTAIL_SEND=' + (tail ? 'ON' : 'OFF'),
-      '-G',
-      'Visual Studio 17 2022',
-      '-A',
-      'x64',
-    ]);
-    run(['--build', build, '--config', 'Release']);
-    const result = execFileSync(
-      path.join(build, 'Release/imported-check.exe'),
-      [],
-      { encoding: 'utf8', windowsHide: true },
+    run(
+      configureArgs('tests/imported-firmware', build, {
+        FIRMWARE: output,
+        TAIL_SEND: tail ? 'ON' : 'OFF',
+      }),
     );
+    run(buildArgs(build));
+    const result = execFileSync(buildExecutable(build, 'imported-check'), [], {
+      encoding: 'utf8',
+      windowsHide: true,
+    });
     assert.match(
       result,
       /Imported connectors, payloads, timeouts and early returns passed/,
