@@ -27,7 +27,7 @@ export function UpdatePrompt({
     >
       <h2 id="update-title">A new version is available</h2>
       <p>ESPresso {update.version} is ready. Would you like to download it?</p>
-      <p>The Windows download opens in your browser.</p>
+      <p>The download for your system opens in your browser.</p>
       {error && (
         <p className="theme-error" role="alert">
           {error}
