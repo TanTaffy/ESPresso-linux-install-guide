@@ -1,5 +1,5 @@
-import { _electron as electron, expect } from '@playwright/test';
-import electronBinary from 'electron';
+import { expect } from '@playwright/test';
+import { launchDesktop } from './electron.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -16,9 +16,7 @@ let app, page;
 const errors = [];
 fs.mkdirSync(path.resolve('test-results'), { recursive: true });
 async function launch() {
-  app = await electron.launch({
-    executablePath: process.env.ESPRESSO_E2E_BINARY || electronBinary,
-    args: process.env.ESPRESSO_E2E_BINARY ? [] : [path.resolve('.')],
+  app = await launchDesktop({
     cwd: path.resolve('.'),
     env,
   });

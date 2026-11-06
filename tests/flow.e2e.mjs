@@ -1,27 +1,30 @@
-import { _electron as electron, expect } from '@playwright/test';
-import electronBinary from 'electron';
+import { expect } from '@playwright/test';
+import { launchDesktop } from './electron.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'espresso-first-program-'));
-const editor = path.join(root, 'Programs/Microsoft VS Code/Code.exe');
+const editor = path.join(
+  root,
+  'fake editor',
+  process.platform === 'win32' ? 'Code.exe' : 'code',
+);
 fs.mkdirSync(path.dirname(editor), { recursive: true });
-fs.writeFileSync(editor, '');
+fs.writeFileSync(editor, '#!/bin/sh\n');
+fs.chmodSync(editor, 0o755);
 const sdk = path.join(root, 'esp-idf');
 fs.mkdirSync(path.join(sdk, 'tools'), { recursive: true });
 fs.writeFileSync(path.join(sdk, 'tools/idf.py'), '');
 const env = {
   ...process.env,
   ESPRESSO_TEST_DATA: path.join(root, 'profile'),
-  LOCALAPPDATA: root,
+  ESPRESSO_EDITOR: editor,
   IDF_PATH: sdk,
 };
 delete env.ELECTRON_RUN_AS_NODE;
-const app = await electron.launch({
-  executablePath: process.env.ESPRESSO_E2E_BINARY || electronBinary,
-  args: process.env.ESPRESSO_E2E_BINARY ? [] : [path.resolve('.')],
+const app = await launchDesktop({
   cwd: path.resolve('.'),
   env,
 });
@@ -32,13 +35,13 @@ page.on('pageerror', (error) => errors.push(error.message));
 const tab = (name) =>
   page.locator('.tabs').getByRole('button', { name, exact: true }).click();
 try {
-  await app.evaluate(() => {
+  await app.evaluate((_electron, editor) => {
     const cp = process.getBuiltinModule('node:child_process');
     const { EventEmitter } = process.getBuiltinModule('node:events');
     const spawn = cp.spawn;
     globalThis.editorLaunches = [];
     cp.spawn = (file, args, options) => {
-      if (file.endsWith('Code.exe')) {
+      if (file === editor) {
         globalThis.editorLaunches.push({ file, args, options });
         const child = new EventEmitter();
         child.unref = () => {};
@@ -47,7 +50,7 @@ try {
       }
       return spawn(file, args, options);
     };
-  });
+  }, editor);
   await expect(page.locator('.project-label')).toHaveText('New layout');
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await page

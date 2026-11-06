@@ -1,6 +1,6 @@
 import { nativeExecutable } from '../scripts/native-paths.mjs';
-import { _electron as electron, expect } from '@playwright/test';
-import electronBinary from 'electron';
+import { expect } from '@playwright/test';
+import { launchDesktop } from './electron.mjs';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -67,9 +67,7 @@ fs.writeFileSync(
 );
 const env = { ...process.env, ESPRESSO_TEST_DATA: path.join(data, 'profile') };
 delete env.ELECTRON_RUN_AS_NODE;
-const app = await electron.launch({
-  executablePath: process.env.ESPRESSO_E2E_BINARY || electronBinary,
-  args: process.env.ESPRESSO_E2E_BINARY ? [] : [path.resolve('.')],
+const app = await launchDesktop({
   env,
   cwd: path.resolve('.'),
   timeout: 30000,

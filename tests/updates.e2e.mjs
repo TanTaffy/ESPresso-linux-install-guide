@@ -1,5 +1,5 @@
-import { _electron as electron, expect } from '@playwright/test';
-import electronBinary from 'electron';
+import { expect } from '@playwright/test';
+import { launchDesktop } from './electron.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -8,9 +8,7 @@ import path from 'node:path';
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'espresso-updates-'));
 const env = { ...process.env, ESPRESSO_TEST_DATA: profile };
 delete env.ELECTRON_RUN_AS_NODE;
-const app = await electron.launch({
-  executablePath: process.env.ESPRESSO_E2E_BINARY || electronBinary,
-  args: process.env.ESPRESSO_E2E_BINARY ? [] : [path.resolve('.')],
+const app = await launchDesktop({
   cwd: path.resolve('.'),
   env,
 });

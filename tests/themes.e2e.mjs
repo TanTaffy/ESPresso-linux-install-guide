@@ -1,5 +1,5 @@
-import { _electron as electron, expect } from '@playwright/test';
-import electronBinary from 'electron';
+import { expect } from '@playwright/test';
+import { launchDesktop } from './electron.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -11,9 +11,7 @@ const preferences = () =>
   JSON.parse(fs.readFileSync(path.join(data, 'appearance.json'), 'utf8'));
 let app;
 async function launch() {
-  return electron.launch({
-    executablePath: process.env.ESPRESSO_E2E_BINARY || electronBinary,
-    args: process.env.ESPRESSO_E2E_BINARY ? [] : [path.resolve('.')],
+  return launchDesktop({
     env,
     cwd: path.resolve('.'),
     timeout: 30000,

@@ -1,4 +1,4 @@
-name: Windows checks
+name: Desktop checks
 
 on:
   push:
@@ -11,23 +11,4 @@ permissions:
 
 jobs:
   build-and-test:
-    runs-on: windows-2022
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-node@v7.1.0
-        with:
-          node-version: '22'
-          cache: npm
-      - run: npm ci
-      - run: npm run format:check
-      - run: npm test
-      - run: npm run build:ui
-      - run: npm run test:e2e
-      - name: Store screenshots on failure
-        if: failure()
-        uses: actions/upload-artifact@v7.0.2
-        with:
-          name: desktop-test-screenshots
-          path: test-results/
-          if-no-files-found: ignore
+    uses: ./.github/workflows/build.yml

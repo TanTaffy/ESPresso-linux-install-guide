@@ -5,6 +5,7 @@ import {
   ipcMain,
   nativeTheme,
   net,
+  Menu,
   shell,
 } from 'electron';
 import { existsSync, readFileSync } from 'node:fs';
@@ -167,7 +168,15 @@ app.whenReady().then(() => {
       ],
     },
   });
-  window.removeMenu();
+  if (process.platform === 'darwin')
+    Menu.setApplicationMenu(
+      Menu.buildFromTemplate([
+        { role: 'appMenu' },
+        { role: 'editMenu' },
+        { role: 'windowMenu' },
+      ]),
+    );
+  else window.removeMenu();
   let updateCheck: Promise<AppUpdate | null> | undefined;
   register('check-updates', () => {
     updateCheck ??=
