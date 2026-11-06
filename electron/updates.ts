@@ -1,4 +1,5 @@
 import type { AppUpdate } from '../src/model';
+import { releaseFilename } from '../scripts/distribution.mjs';
 
 const repository = 'https://github.com/Trovix/ESPresso';
 export const releasesApi =
@@ -13,6 +14,8 @@ function versionParts(version: string) {
 export function availableUpdate(
   current: string,
   value: unknown,
+  platform = process.platform,
+  arch = process.arch,
 ): AppUpdate | null {
   if (!value || typeof value !== 'object') return null;
   const release = value as Record<string, unknown>;
@@ -24,7 +27,8 @@ export function availableUpdate(
   if (!next || !installed) return null;
   const difference = next.findIndex((part, index) => part !== installed[index]);
   if (difference < 0 || next[difference] < installed[difference]) return null;
-  const filename = `ESPresso-${version}-Windows.exe`;
+  const filename = releaseFilename(version, platform, arch);
+  if (!filename) return null;
   const url = `${repository}/releases/download/${release.tag_name}/${filename}`;
   if (
     !Array.isArray(release.assets) ||
@@ -33,6 +37,8 @@ export function availableUpdate(
         asset &&
         asset.name === filename &&
         asset.state === 'uploaded' &&
+        typeof asset.size === 'number' &&
+        Number.isFinite(asset.size) &&
         asset.size > 0 &&
         asset.browser_download_url === url,
     )
@@ -44,6 +50,8 @@ export function availableUpdate(
 export async function checkForUpdate(
   current: string,
   fetchRelease: (url: string, options: RequestInit) => Promise<Response>,
+  platform = process.platform,
+  arch = process.arch,
 ): Promise<AppUpdate | null> {
   try {
     const response = await fetchRelease(releasesApi, {
@@ -54,7 +62,7 @@ export async function checkForUpdate(
       signal: AbortSignal.timeout(8000),
     });
     if (!response.ok) return null;
-    return availableUpdate(current, await response.json());
+    return availableUpdate(current, await response.json(), platform, arch);
   } catch {
     // Offline, rate-limited or invalid responses must not interrupt editing.
     return null;

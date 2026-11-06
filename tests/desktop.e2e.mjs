@@ -1,5 +1,5 @@
-import { _electron as electron, expect } from '@playwright/test';
-import electronBinary from 'electron';
+import { expect } from '@playwright/test';
+import { launchDesktop } from './electron.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -18,9 +18,7 @@ fs.writeFileSync(
 );
 const env = { ...process.env, ESPRESSO_TEST_DATA: data };
 delete env.ELECTRON_RUN_AS_NODE;
-const app = await electron.launch({
-  executablePath: process.env.ESPRESSO_E2E_BINARY || electronBinary,
-  args: process.env.ESPRESSO_E2E_BINARY ? [] : [root],
+const app = await launchDesktop({
   env,
   cwd: root,
   timeout: 30000,
@@ -241,13 +239,16 @@ try {
   await page.screenshot({ path: path.join(screenshotDir, 'export.png') });
   const savePath = path.join(data, 'saved.espresso.json');
   await app.evaluate(({ dialog }, savePath) => {
-    dialog.showSaveDialog = async () => ({
-      canceled: false,
-      filePath: savePath,
-    });
+    globalThis.saveDialogCalls = 0;
+    dialog.showSaveDialog = async () => {
+      ++globalThis.saveDialogCalls;
+      return { canceled: false, filePath: savePath };
+    };
   }, savePath);
   await page.getByRole('button', { name: 'Save layout', exact: true }).click();
-  await page.getByText('Layout saved', { exact: true }).waitFor();
+  await expect
+    .poll(() => fs.existsSync(savePath), { timeout: 20000 })
+    .toBe(true);
   const saved = JSON.parse(fs.readFileSync(savePath, 'utf8'));
   assert.equal(saved.nodes[0].periodMs, 50);
   assert.equal(saved.nodes[1].fields.at(-1).name, 'sample_counter');
@@ -434,7 +435,15 @@ try {
     }),
   ).toBeVisible();
   await page.getByRole('button', { name: 'Save layout', exact: true }).click();
-  await page.getByText('Layout saved', { exact: true }).waitFor();
+  await expect
+    .poll(
+      () =>
+        JSON.parse(fs.readFileSync(savePath, 'utf8'))
+          .nodes.flatMap((node) => node.loop ?? [])
+          .some((step) => step.name === 'Keep this placeholder'),
+      { timeout: 20000 },
+    )
+    .toBe(true);
   assert.deepEqual(errors, []);
   console.log(
     JSON.stringify({
@@ -444,6 +453,20 @@ try {
       screenshots: screenshotDir,
     }),
   );
+} catch (error) {
+  console.error(
+    JSON.stringify({
+      files: fs.readdirSync(data),
+      pageErrors: errors,
+      uiErrors: await page.locator('.error-banner').allTextContents(),
+      dialogs: await page.getByRole('dialog').allTextContents(),
+      saveDialogCalls: await app.evaluate(() => globalThis.saveDialogCalls),
+    }),
+  );
+  await page.screenshot({
+    path: path.join(screenshotDir, 'desktop-failure.png'),
+  });
+  throw error;
 } finally {
   await app.evaluate(({ app }) => app.exit(0)).catch(() => {});
   await app.close().catch(() => {});

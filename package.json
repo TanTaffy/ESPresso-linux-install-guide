@@ -13,13 +13,14 @@
     "build": "npm run native && npm run build:ui",
     "start": "node scripts/launch.mjs",
     "dev": "npm run build && npm start",
-    "test": "npm run native && node --test tests/backend.test.mjs tests/firmware.test.mjs tests/roundtrip.test.mjs tests/runtime-config.test.mjs tests/imported.test.mjs tests/skeleton.test.mjs tests/editor.test.mjs tests/updates.test.mjs tests/http.test.mjs tests/native-paths.test.mjs",
+    "test": "npm run native && node --test tests/backend.test.mjs tests/firmware.test.mjs tests/roundtrip.test.mjs tests/runtime-config.test.mjs tests/imported.test.mjs tests/skeleton.test.mjs tests/editor.test.mjs tests/updates.test.mjs tests/http.test.mjs tests/native-paths.test.mjs tests/developer-tools.test.mjs tests/distribution.test.mjs",
     "test:e2e": "node tests/flow.e2e.mjs && node tests/desktop.e2e.mjs && node tests/project.e2e.mjs && node tests/features.e2e.mjs && node tests/themes.e2e.mjs && node tests/recovery.e2e.mjs && node tests/updates.e2e.mjs",
     "test:idf": "npm run native && node scripts/validate-idf.mjs",
     "package": "npm run build && node scripts/package.mjs",
     "format": "node scripts/format.mjs",
     "format:check": "node scripts/format.mjs --check",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:packaged": "node scripts/test-packaged.mjs"
   },
   "dependencies": {
     "@xyflow/react": "12.12.0",
@@ -97,6 +98,22 @@
     },
     "portable": {
       "artifactName": "ESPresso-${version}-Windows.exe"
+    },
+    "mac": {
+      "target": "zip",
+      "category": "public.app-category.developer-tools",
+      "icon": "public/brand/espresso-mark.png",
+      "artifactName": "ESPresso-${version}-macOS-${arch}.${ext}",
+      "identity": "-",
+      "hardenedRuntime": false,
+      "notarize": false
+    },
+    "linux": {
+      "target": "tar.gz",
+      "category": "Development",
+      "icon": "public/brand/espresso-mark.png",
+      "executableName": "espresso-desktop",
+      "artifactName": "ESPresso-${version}-Linux-${arch}.${ext}"
     }
   }
 }

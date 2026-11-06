@@ -1,5 +1,5 @@
-import { _electron as electron, expect } from '@playwright/test';
-import electronBinary from 'electron';
+import { expect } from '@playwright/test';
+import { launchDesktop } from './electron.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -13,9 +13,7 @@ const env = {
 };
 delete env.ELECTRON_RUN_AS_NODE;
 const launch = () =>
-  electron.launch({
-    executablePath: process.env.ESPRESSO_E2E_BINARY || electronBinary,
-    args: process.env.ESPRESSO_E2E_BINARY ? [] : [path.resolve('.')],
+  launchDesktop({
     cwd: path.resolve('.'),
     env,
   });
@@ -31,11 +29,18 @@ const shot = (name) =>
 try {
   await expect(page.locator('.project-label')).toHaveText('New layout');
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  await app.evaluate(async () => {
+  await app.evaluate(async ({ shell }) => {
     const cp = process.getBuiltinModule('node:child_process');
     const { EventEmitter } = process.getBuiltinModule('node:events');
     const original = cp.spawn;
     globalThis.folderLaunches = [];
+    shell.openPath = async (directory) => {
+      globalThis.folderLaunches.push({
+        file: 'shell.openPath',
+        args: [directory],
+      });
+      return '';
+    };
     cp.spawn = (file, args, options) => {
       if (file.toLowerCase().endsWith('\\explorer.exe')) {
         globalThis.folderLaunches.push({ file, args, options });
@@ -142,9 +147,10 @@ try {
     [[path.join(profile, 'Libraries')], [path.join(profile, 'Task templates')]],
   );
   assert.ok(
-    launches.every(
-      (call) =>
-        call.options.shell === false && call.options.windowsHide === false,
+    launches.every((call) =>
+      process.platform === 'win32'
+        ? call.options.shell === false && call.options.windowsHide === false
+        : call.file === 'shell.openPath',
     ),
   );
   await page

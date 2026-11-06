@@ -17,6 +17,7 @@ const initialAppearance = (() => {
 })();
 import type { DesktopApi } from '../src/model';
 const api: DesktopApi = {
+  platform: process.platform,
   initialAppearance,
   setAppearance: (appearance) =>
     ipcRenderer.invoke('set-appearance', appearance),

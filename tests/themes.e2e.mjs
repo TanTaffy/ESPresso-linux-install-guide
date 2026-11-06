@@ -1,5 +1,5 @@
-import { _electron as electron, expect } from '@playwright/test';
-import electronBinary from 'electron';
+import { expect } from '@playwright/test';
+import { launchDesktop } from './electron.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -11,9 +11,7 @@ const preferences = () =>
   JSON.parse(fs.readFileSync(path.join(data, 'appearance.json'), 'utf8'));
 let app;
 async function launch() {
-  return electron.launch({
-    executablePath: process.env.ESPRESSO_E2E_BINARY || electronBinary,
-    args: process.env.ESPRESSO_E2E_BINARY ? [] : [path.resolve('.')],
+  return launchDesktop({
     env,
     cwd: path.resolve('.'),
     timeout: 30000,
@@ -53,6 +51,14 @@ try {
       .selectOption(id);
     await expect(page.locator('html')).toHaveAttribute('data-theme', id);
     await expect(() => expect(preferences().selected).toBe(id)).toPass();
+    // React Flow draws edges after measuring its nodes. Wait for the actual
+    // graph before reading styles, including on fast native macOS runners.
+    for (const selector of [
+      '.graph-node',
+      '.react-flow__edge-path',
+      '.react-flow__controls-button',
+    ])
+      await expect(page.locator(selector).first()).toBeVisible();
     assert.equal(
       await app.evaluate(({ nativeTheme }) => nativeTheme.shouldUseDarkColors),
       dark,

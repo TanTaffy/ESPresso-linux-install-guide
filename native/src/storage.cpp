@@ -3,7 +3,9 @@
 #include <fstream>
 #include <iterator>
 #ifdef _WIN32
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #include <windows.h>
 #endif
 
@@ -33,9 +35,9 @@ void write_file(const fs::path &path, const std::string &text)
 }
 void atomic_save(const fs::path &path, const std::string &text)
 {
-    const auto temporary =
-        fs::path(path.wstring() + L".tmp-" +
-                 std::to_wstring(std::chrono::steady_clock::now().time_since_epoch().count()));
+    auto temporary = path;
+    temporary += ".tmp-" +
+                 std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
     try
     {
         write_file(temporary, text);

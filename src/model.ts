@@ -160,12 +160,14 @@ export type ExportResult = {
   fileCount: number;
 } | null;
 export type DeveloperTools = {
+  platform: string;
   idfPath: string | null;
   editorPath: string | null;
 };
 export type Phase = 'setup' | 'loop';
 export type AppUpdate = { version: string; url: string };
 export interface DesktopApi {
+  platform: string;
   initialAppearance: Appearance;
   setAppearance(appearance: Appearance): Promise<void>;
   boot(): Promise<Boot>;

@@ -1,6 +1,6 @@
 # ESPresso
 
-A Windows app for designing FreeRTOS tasks and exporting ESP-IDF C++ skeletons.
+A desktop app for designing FreeRTOS tasks and exporting ESP-IDF C++ skeletons.
 
 ESPresso opens directly on the canvas. Click the project name in the header to change its name or board in **Project settings**.
 
@@ -30,11 +30,11 @@ Use **Save as…** (Ctrl+Shift+S) to save a separate copy of a layout. On the ne
 
 Use the bug icon beside the theme selector to [report an issue on GitHub](https://github.com/Trovix/ESPresso/issues).
 
-The packaged app checks GitHub for a newer stable Windows release once on launch. Choose **Download update** to open the official download in your browser, or **Not now** to continue. Offline checks stay quiet.
+The packaged app checks GitHub for a newer stable release for its OS and CPU architecture once on launch. Choose **Download update** to open the official download in your browser, or **Not now** to continue. Offline checks stay quiet.
 
 ## Run from source
 
-Requires Node.js 22.14+, CMake 3.20+ and a C++17 compiler. On Windows, install Visual Studio C++ Build Tools with CMake and a Windows SDK; on macOS, use Xcode Command Line Tools; on Linux, use GCC or Clang. macOS/Linux also need libcurl 7.85+ development files (`libcurl4-openssl-dev` on Ubuntu 24.04; the macOS SDK includes libcurl). The packaged Windows app needs none of these.
+Requires Node.js 22.14+, CMake 3.20+ and a C++17 compiler. On Windows, install Visual Studio C++ Build Tools with CMake and a Windows SDK; on macOS, use Xcode Command Line Tools; on Linux, use GCC or Clang. macOS/Linux also need libcurl 7.85+ development files (`libcurl4-openssl-dev` on Ubuntu 24.04; the macOS SDK includes libcurl). Packaged apps do not need the build toolchain. Linux packages use the system libcurl and desktop libraries; CI builds against Ubuntu 24.04.
 
 The first Windows build downloads and statically links a pinned libcurl release using Windows certificate verification. Later builds reuse the source in `build/native/_deps`. GitHub library downloads use the HTTP client adapted from [Icarus](https://github.com/Trovix/icarus).
 
@@ -54,7 +54,17 @@ npm run test:e2e
 npm run format:check
 ```
 
-With ESP-IDF activated, `npm run test:idf` builds a fresh export using the real SDK. `npm run package` creates the portable Windows app.
+With ESP-IDF activated, `npm run test:idf` builds a fresh export using the real SDK.
+
+`npm run package` builds for the current OS and CPU architecture. Build on each target machine rather than cross-compiling the native backend. Packages appear in `release/`:
+
+- Windows x64: portable `.exe`.
+- macOS x64/ARM64: `.zip` containing `ESPresso.app`. These builds are ad-hoc signed, without Apple Developer ID notarization.
+- Linux x64/ARM64: `.tar.gz`; extract it and run `espresso-desktop`. A compatible glibc, libcurl and Electron desktop libraries are required (Ubuntu 24.04 is the CI baseline).
+
+`npm run test:packaged` exercises the unpacked package. `node scripts/checksum.mjs` writes its SHA-256 checksum. On headless Linux, run desktop tests under `xvfb-run -a`.
+
+Every PR builds, tests and packages all five OS/architecture combinations. Tag releases use the same checks and publish all packages together only after every job passes.
 
 The native backend can also be built directly:
 
@@ -63,6 +73,6 @@ cmake -S native -B build/native -DCMAKE_BUILD_TYPE=Release
 cmake --build build/native --config Release
 ```
 
-macOS/Linux builds still need verification. Packaging, editor integration and desktop test coverage have remaining portability work.
+The Export screen detects ESP-IDF through `IDF_PATH`, `IDF_TOOLS_PATH` and common install folders, and generates PowerShell or Bash/Zsh commands. VS Code is found through `PATH` and common install locations; `ESPRESSO_EDITOR` can point to its executable or CLI script. Paths containing spaces and apostrophes are supported.
 
 [MIT license](LICENSE). Independent project, not affiliated with or endorsed by Espressif Systems.
