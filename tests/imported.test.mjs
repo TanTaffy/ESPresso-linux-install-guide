@@ -642,7 +642,6 @@ test('extended imported C++ compiles and executes input/output, notification, ti
   );
   let output = request({ op: 'export', project: p, path: root }).path;
   const cmake = cmakeExecutable();
-  const build = path.join(root, 'build');
   const run = (args) => {
     try {
       return execFileSync(cmake, args, { encoding: 'utf8', windowsHide: true });
@@ -651,6 +650,9 @@ test('extended imported C++ compiles and executes input/output, notification, ti
     }
   };
   for (const tail of [true, false]) {
+    // Compile each scenario independently. Rapidly changing TAIL_SEND in one
+    // Makefiles build can reuse a stale object on coarse-timestamp filesystems.
+    const build = path.join(root, tail ? 'build-tail' : 'build-followed');
     if (!tail) {
       const imported = request({ op: 'import-project', path: output }).project;
       imported.nodes[0].loop.push(notification);
