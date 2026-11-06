@@ -29,16 +29,11 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - name: Install Linux desktop dependencies
+      - name: Install Linux dependencies
         if: runner.os == 'Linux'
-        timeout-minutes: 8
         run: |
-          printf 'Acquire::Retries "2";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\n' | sudo tee /etc/apt/apt.conf.d/80-espresso-ci
-          npx playwright install-deps chromium
-      - name: Install Linux native dependencies
-        if: runner.os == 'Linux'
-        timeout-minutes: 5
-        run: sudo apt-get install -y libcurl4-openssl-dev xvfb
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libcurl4-openssl-dev libgtk-3-0t64 libnss3 libgbm1 libasound2t64 libcups2t64 libatk-bridge2.0-0t64 xvfb fonts-liberation fonts-noto-color-emoji
       - run: npm run format:check
       - run: npm test
       - run: npm run build:ui
