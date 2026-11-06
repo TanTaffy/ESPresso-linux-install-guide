@@ -54,6 +54,7 @@ import { version as appVersion } from '../package.json';
 
 export default function App() {
   const editor = useEditor();
+  const modifier = window.espresso.platform === 'darwin' ? 'Cmd' : 'Ctrl';
   const [update, setUpdate] = useState<AppUpdate | null>(null);
   const updateChecked = useRef(false);
   useEffect(() => {
@@ -168,7 +169,7 @@ export default function App() {
           </button>
           <button
             className="button quiet"
-            title="Save layout as (Ctrl+Shift+S)"
+            title={`Save layout as (${modifier}+Shift+S)`}
             onClick={() => void save(true)}
             disabled={busy}
           >
@@ -234,7 +235,7 @@ export default function App() {
             className="icon-button"
             disabled={!undo.length}
             onClick={undoAction}
-            title="Undo (Ctrl+Z)"
+            title={`Undo (${modifier}+Z)`}
             aria-label="Undo"
           >
             <Undo2 size={17} />
@@ -243,7 +244,7 @@ export default function App() {
             className="icon-button"
             disabled={!redo.length}
             onClick={redoAction}
-            title="Redo (Ctrl+Shift+Z)"
+            title={`Redo (${modifier}+Shift+Z)`}
             aria-label="Redo"
           >
             <Redo2 size={17} />

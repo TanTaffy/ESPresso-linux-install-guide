@@ -1,5 +1,6 @@
 import { expect } from '@playwright/test';
 import { launchDesktop } from './electron.mjs';
+import { releaseFilename } from '../scripts/distribution.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -17,24 +18,27 @@ try {
   page.setDefaultTimeout(15000);
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await app.evaluate(({ ipcMain }) => {
-    globalThis.updateChecks = 0;
-    globalThis.downloadRequests = 0;
-    globalThis.updateFailure = false;
-    ipcMain.removeHandler('check-updates');
-    ipcMain.handle('check-updates', () => {
-      ++globalThis.updateChecks;
-      if (globalThis.updateFailure) throw Error('offline');
-      return {
-        version: '9.0.0',
-        url: 'https://github.com/Trovix/ESPresso/releases/download/v9.0.0/ESPresso-9.0.0-Windows.exe',
-      };
-    });
-    ipcMain.removeHandler('download-update');
-    ipcMain.handle('download-update', () => {
-      ++globalThis.downloadRequests;
-    });
-  });
+  await app.evaluate(
+    ({ ipcMain }, url) => {
+      globalThis.updateChecks = 0;
+      globalThis.downloadRequests = 0;
+      globalThis.updateFailure = false;
+      ipcMain.removeHandler('check-updates');
+      ipcMain.handle('check-updates', () => {
+        ++globalThis.updateChecks;
+        if (globalThis.updateFailure) throw Error('offline');
+        return {
+          version: '9.0.0',
+          url,
+        };
+      });
+      ipcMain.removeHandler('download-update');
+      ipcMain.handle('download-update', () => {
+        ++globalThis.downloadRequests;
+      });
+    },
+    `https://github.com/Trovix/ESPresso/releases/download/v9.0.0/${releaseFilename('9.0.0')}`,
+  );
   await page.reload();
   const prompt = page.getByRole('dialog', {
     name: 'A new version is available',

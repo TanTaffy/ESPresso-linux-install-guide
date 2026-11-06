@@ -168,7 +168,7 @@ export function ExportScreen({
             <>
               New folder:{' '}
               <strong>
-                {exportParent.replace(/[\\/]$/, '')}\{project.name}
+                {`${exportParent.replace(/[\\/]$/, '')}${window.espresso.platform === 'win32' ? '\\' : '/'}${project.name}`}
               </strong>
             </>
           ) : (

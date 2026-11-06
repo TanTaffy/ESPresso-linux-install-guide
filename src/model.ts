@@ -167,6 +167,7 @@ export type DeveloperTools = {
 export type Phase = 'setup' | 'loop';
 export type AppUpdate = { version: string; url: string };
 export interface DesktopApi {
+  platform: string;
   initialAppearance: Appearance;
   setAppearance(appearance: Appearance): Promise<void>;
   boot(): Promise<Boot>;
