@@ -36,6 +36,8 @@ The packaged app checks GitHub for a newer stable Windows release once on launch
 
 Requires Windows x64, Node.js 22.14+ and Visual Studio 2022 C++ Build Tools with CMake and a Windows SDK. The packaged app needs none of these.
 
+The first Windows build downloads and statically links a pinned libcurl release using Windows certificate verification. Later builds reuse the source in `build/native/_deps`. GitHub library downloads use the HTTP client adapted from [Icarus](https://github.com/Trovix/icarus).
+
 ```powershell
 npm ci
 npm run build
@@ -51,5 +53,14 @@ npm run format:check
 ```
 
 With ESP-IDF activated, `npm run test:idf` builds a fresh export using the real SDK. `npm run package` creates the portable Windows app.
+
+The native backend can also be built directly on macOS/Linux with a C++17 compiler, CMake 3.20+ and libcurl 7.85+ development files (`libcurl4-openssl-dev` on Ubuntu 24.04; the macOS SDK includes libcurl):
+
+```sh
+cmake -S native -B build/native -DCMAKE_BUILD_TYPE=Release
+cmake --build build/native
+```
+
+The desktop launch scripts, packaging and full test suite still need the remaining portability work.
 
 [MIT license](LICENSE). Independent project, not affiliated with or endorsed by Espressif Systems.
