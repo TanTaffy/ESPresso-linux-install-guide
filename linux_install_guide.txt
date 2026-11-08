@@ -1,0 +1,60 @@
+===================================================================
+SETUP GUIDE FOR LINUX
+===================================================================
+Just something I made, for future users and myself:)
+
+note-'ver' in directories will refer to the specific version being used
+-so make sure it aligns when using these steps
+
+If you want to run it once without adding it as a registered app you can
+launch from the terminal using just the command below.
+
+cd *where you saved the tar.gz file to*
+tar -xzf ESPresso-ver-Linux-x64.tar.gz
+cd ESPresso-ver-Linux-x64
+./espresso-desktop
+-------------------------------------------------------------------
+STEP 1: Extract and Move Application to standard Location
+-------------------------------------------------------------------
+Moving it to a permanent location where apps are usually stored.
+
+mkdir -p ~/.local/opt
+tar -xzf ESPresso-ver-Linux-x64.tar.gz -C ~/.local/opt/
+mv ~/.local/opt/ESPresso-ver-Linux-x64 ~/.local/opt/espresso
+
+-------------------------------------------------------------------
+STEP 2: Create Desktop Launcher (.desktop File)
+-------------------------------------------------------------------
+Desktop entries allow your application to show up in your system's app 
+launcher grid alongside traditional installed apps.
+
+1. Open a new entry file in nano (or your preferred editor):
+
+   mkdir -p ~/.local/share/applications
+   nano ~/.local/share/applications/espresso.desktop
+
+2. Paste the following configuration (Ctrl+Shift+V):
+   (Replace 'yourusername' with your actual username)
+
+   [Desktop Entry]
+   Version=1.0
+   Type=Application
+   Name=ESPresso
+   Comment=FreeRTOS GUI
+   Exec=/home/yourusername/.local/opt/espresso/espresso-desktop
+   Icon=/home/yourusername/.local/opt/espresso/resources/branding/espresso-mark.png
+   Terminal=false
+   Categories=Utility;Development;
+
+3. Save and exit (Ctrl+O, Enter, Ctrl+X in nano).
+
+4. Make the file executable:
+   chmod +x ~/.local/share/applications/espresso.desktop
+
+-------------------------------------------------------------------
+STEP 3: Update Desktop Database
+-------------------------------------------------------------------
+
+Force the application launcher menu to register the new item:
+update-desktop-database ~/.local/share/applications/
+
